@@ -141,13 +141,10 @@ def _run_health_check():
 
 
 def _display_health_check() -> dict[str, bool]:
-    """Mostra il risultato del health check in formato semplificato senza URL."""
     _section("Service Availability Check")
     print(f"  {DIM('Probing endpoints...')} ", end="", flush=True)
 
     results = _run_health_check()
-
-    # Cancella la riga "Probing…"
     print("\r" + " " * 40 + "\r", end="")
 
     if not results:
@@ -263,41 +260,59 @@ def _pick_from_history() -> str | None:
 
 def _profile_load_section(cfg: dict) -> dict:
     try:
-        from SpotiFLAC.core.profiles import list_profiles, get_profile
-        profiles = list_profiles()
+        from SpotiFLAC.core.profiles import list_profiles, get_profile, delete_profile
     except Exception:
         return cfg
 
-    if not profiles:
-        return cfg
+    while True:
+        profiles = list_profiles()
+        if not profiles:
+            return cfg
 
-    _section("Load Profile  (optional)")
-    print(f"  {DIM('Saved profiles:')}")
-    for i, name in enumerate(profiles, 1):
-        print(f"    {DIM(f'[{i}]')} {name}")
-    print(f"    {DIM('[Enter]')} Start fresh")
+        _section("Load Profile  (optional)")
+        print(f"  {DIM('Saved profiles:')}")
+        for i, name in enumerate(profiles, 1):
+            print(f"    {DIM(f'[{i}]')} {name}")
+            
+        print(f"\n    {DIM('[Enter]')} Start fresh")
+        print(f"    {DIM('[d + num]')} Delete a profile (e.g., d1, d2)")
 
-    try:
-        val = input("  → ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        sys.exit(0)
+        try:
+            val = input("  → ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
 
-    if not val:
-        return cfg
+        if not val:
+            return cfg
 
-    chosen_name: str | None = None
-    if val.isdigit() and 1 <= int(val) <= len(profiles):
-        chosen_name = profiles[int(val) - 1]
-    elif val in profiles:
-        chosen_name = val
+        val_lower = val.lower()
+        
+        # Gestione cancellazione profilo
+        if val_lower.startswith('d') and len(val_lower) > 1:
+            num_str = val_lower[1:].strip()
+            if num_str.isdigit():
+                idx = int(num_str) - 1
+                if 0 <= idx < len(profiles):
+                    prof_to_delete = profiles[idx]
+                    if _ask_bool(f"Delete profile '{prof_to_delete}'?", False):
+                        delete_profile(prof_to_delete)
+                        print(f"\n  {GREEN('✓')} Profile {BOLD(prof_to_delete)} deleted.\n")
+                    continue # Ricarica il menu aggiornato
 
-    if chosen_name:
-        profile_data = get_profile(chosen_name)
-        if profile_data:
-            cfg.update({k: v for k, v in profile_data.items() if not k.startswith("_")})
-            print(f"\n  {GREEN('✓')} Profile {BOLD(chosen_name)} loaded.")
-    return cfg
+        # Gestione caricamento profilo
+        chosen_name: str | None = None
+        if val.isdigit() and 1 <= int(val) <= len(profiles):
+            chosen_name = profiles[int(val) - 1]
+        elif val in profiles:
+            chosen_name = val
+
+        if chosen_name:
+            profile_data = get_profile(chosen_name)
+            if profile_data:
+                cfg.update({k: v for k, v in profile_data.items() if not k.startswith("_")})
+                print(f"\n  {GREEN('✓')} Profile {BOLD(chosen_name)} loaded.")
+            return cfg
 
 
 def _profile_save_section(cfg: dict) -> None:
@@ -682,11 +697,11 @@ def run_interactive() -> dict:
         cfg["lyrics_providers"] = _ask_multi(
             "Lyrics providers (order = priority):",
             options  = ["spotify", "apple", "musixmatch", "lrclib", "amazon"],
-            defaults = cfg.get("lyrics_providers") or ["spotify", "lrclib", "apple", "amazon"],
+            defaults = cfg.get("lyrics_providers") or ["lrclib", "apple", "amazon"],
             ordered  = True,
         )
     else:
-        cfg["lyrics_providers"] = cfg.get("lyrics_providers") or ["spotify", "musixmatch", "lrclib", "apple"]
+        cfg["lyrics_providers"] = cfg.get("lyrics_providers") or ["lrclib", "apple", "amazon"]
 
     # ── 9. Metadata enrichment ──────────────────────────────────────────────
     _section("9 · Metadata Enrichment")

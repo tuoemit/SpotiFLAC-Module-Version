@@ -311,6 +311,10 @@ def _fetch_stream_url_once(
 
         try:
             if is_post:
+                if is_zarz:
+                    from ..core.http import zarz_rate_limiter
+                    zarz_rate_limiter.wait_for_slot()
+
                 payload = {
                     "quality": _map_musicdl_quality(quality),
                     "upload_to_r2": False,
@@ -396,7 +400,7 @@ def _fetch_stream_url_parallel(
     start  = time.time()
     errors: list[str] = []
 
-    pool = ThreadPoolExecutor(max_workers=min(len(apis), 8))
+    pool = ThreadPoolExecutor(max_workers=min(len(apis), 4))
     try:
         futures: dict[Future, str] = {
             pool.submit(_fetch_stream_url_once, api, track_id, quality, timeout_s): api

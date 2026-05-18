@@ -20,16 +20,8 @@ _io_lock = threading.Lock()
 _PROFILES_FILE = Path.home() / ".cache" / "spotiflac" / "profiles.json"
 
 # Chiavi che vengono salvate in un profilo (esclude URL, cartella, token personali)
-_PROFILE_KEYS = [
-    "services", "quality", "filename_format",
-    "use_track_numbers", "use_album_track_numbers",
-    "use_artist_subfolders", "use_album_subfolders",
-    "first_artist_only", "allow_fallback",
-    "embed_lyrics", "lyrics_providers",
-    "enrich_metadata", "enrich_providers",
-    "track_max_retries", "post_download_action", "post_download_command",
-    "include_featuring",
-]
+# Chiavi di runtime o sensibili che NON devono essere salvate in un profilo
+_EXCLUDE_FROM_PROFILE = ["url", "output_path", "qobuz_token"]
 
 
 def _load() -> dict:
@@ -67,11 +59,12 @@ def get_profile(name: str) -> dict | None:
 
 def save_profile(name: str, cfg: dict) -> None:
     """
-    Salva le chiavi rilevanti di cfg come profilo nominato.
+    Salva l'intera configurazione come profilo nominato, escludendo i dati di runtime.
     Sovrascrive eventuali profili preesistenti con lo stesso nome.
     """
     profiles = _load()
-    profiles[name] = {k: cfg[k] for k in _PROFILE_KEYS if k in cfg}
+    # Salva tutto tranne url, output_path e le chiavi interne (che iniziano con _)
+    profiles[name] = {k: v for k, v in cfg.items() if k not in _EXCLUDE_FROM_PROFILE and not k.startswith("_")}
     profiles[name]["_saved_at"] = int(time.time())
     _write(profiles)
 

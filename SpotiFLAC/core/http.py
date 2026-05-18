@@ -59,6 +59,7 @@ class RateLimiter:
 
 # Istanza globale del Rate Limiter per Song.link / Odesli (9 req / 60 secondi)
 songlink_rate_limiter = RateLimiter(9, 60.0)
+zarz_rate_limiter = RateLimiter(5, 10.0)
 
 
 @dataclass
