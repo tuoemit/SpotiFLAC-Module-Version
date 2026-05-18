@@ -485,12 +485,10 @@ class PandoraProvider(BaseProvider):
     # ------------------------------------------------------------------
 
     def _resolve_song_link(self, url: str) -> dict:
-        """Porta di resolveSongLink() in JS."""
-        params = {
-            "url":         url,
-            "userCountry": _USER_COUNTRY,
-        }
+        from ..core.http import songlink_rate_limiter
+        params = {"url": url, "userCountry": _USER_COUNTRY}
         full_url = f"{_SONGLINK_URL}?{urlencode(params)}"
+        songlink_rate_limiter.wait_for_slot()
         return self._get_json(full_url)
 
     def _extract_pandora_url_from_songlink(self, data: dict) -> str:

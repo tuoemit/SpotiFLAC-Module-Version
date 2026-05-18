@@ -119,13 +119,14 @@ def _load_endpoints() -> dict[str, list[tuple[str, str]]]:
 
     # ── Deezer ─────────────────────────────────────────────────────────────
     try:
-        # Usa l'API pubblica di Deezer come probe affidabile (sempre 200)
-        # invece del resolver interno che richiede un payload specifico.
+        from SpotiFLAC.providers.deezer import _RESOLVER_URL
         endpoints["deezer"] = [
+            ("POST", _RESOLVER_URL),
             ("GET", "https://api.zarz.moe/v1/health"),
         ]
-    except Exception:
+    except ImportError:
         endpoints["deezer"] = [
+            ("POST", "https://api.zarz.moe/v1/dl/dzr"),
             ("GET", "https://api.zarz.moe/v1/health"),
         ]
 
@@ -258,7 +259,22 @@ def _check_one(provider: str, method: str, url: str) -> HealthResult:
         # risponde con il suo normale errore di validazione (400/422)
         # anziché un generico 405 Method Not Allowed.
         if method == "POST":
-            req_kwargs["json"] = {}
+            if provider == "deezer":
+                # Il resolver specifico di Deezer richiede un payload particolare
+                req_kwargs["json"] = {
+                    "platform": "deezer",
+                    "url": "https://www.deezer.com/track/3135556"
+                }
+            else:
+                test_urls = {
+                    "apple": "https://music.apple.com/us/album/test/123456789?i=123456789",
+                    "amazon": "https://music.amazon.com/albums/B000000000?trackAsin=B000000000",
+                    "soundcloud": "https://soundcloud.com/spinninrecords/martin-garrix-animals",
+                    "pandora": "https://pandora.com/artist/test/test/test",
+                    "tidal": "https://tidal.com/browse/track/1"
+                }
+                dummy_url = test_urls.get(provider, "https://example.com/track/123")
+                req_kwargs["json"] = {"url": dummy_url}
 
         resp = requests.request(method, url, **req_kwargs)
         ms = (time.perf_counter() - t0) * 1000
@@ -272,12 +288,29 @@ def _check_one(provider: str, method: str, url: str) -> HealthResult:
         # funzionante. Solo 502/503/504 significano "giù".
         _is_post_probe = (method == "POST" and "health" not in url)
         if _is_post_probe:
-            if resp.status_code in (502, 503, 504):
-                ok     = False
-                detail = f"Server Error {resp.status_code}"
+            if resp.status_code == 200:
+                body = resp.text
+                if _contains_streaming_url(body):
+                    ok     = True
+                    detail = "Stream OK"
+                else:
+                    try:
+                        data = json.loads(body)
+                        # Verifica errori generici O il formato specifico {"success": false} usato dal resolver dzr
+                        if isinstance(data, dict) and (data.get("error") or data.get("status") == "error" or data.get("success") is False):
+                            ok      = False
+                            err_msg = data.get("message") or data.get("error") or "API Error"
+                            detail  = str(err_msg)[:10]
+                        else:
+                            ok     = True
+                            detail = "HTTP 200 OK"
+                    except ValueError:
+                        ok     = True
+                        detail = "HTTP 200 OK"
             else:
-                ok     = True
+                ok     = False
                 detail = f"HTTP {resp.status_code}"
+                
             return HealthResult(provider, url, method, ok, ms, detail)
 
         # ── GET probes ─────────────────────────────────────────────────────

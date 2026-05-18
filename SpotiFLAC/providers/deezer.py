@@ -178,6 +178,9 @@ class DeezerProvider(BaseProvider):
         base_delay = 3.0
 
         for attempt in range(max_retries):
+            if is_zarz:
+                from ..core.http import zarz_rate_limiter
+                zarz_rate_limiter.wait_for_slot()
             resp = self._session.post(url, json=payload, headers=headers, timeout=_API_TIMEOUT_S)
 
             if resp.status_code == 429:
