@@ -38,11 +38,7 @@ from .providers import (
 )
 from .core import TrackMetadata, DownloadResult
 
-<<<<<<< Updated upstream
-__version__ = "0.5.6"
-=======
 __version__ = "0.5.8"
->>>>>>> Stashed changes
 
 __all__ = [
     "SpotiFLAC",
