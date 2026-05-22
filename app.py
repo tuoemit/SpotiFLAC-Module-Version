@@ -2,8 +2,11 @@ import webview
 import threading
 import json
 import os
+import sys
+import subprocess
 import logging
 import requests as req_lib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 DEFAULT_DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Music", "SpotiFLAC")
 
@@ -35,7 +38,7 @@ class SpotiFLAC_API:
     def _on_loaded(self):
         self.log("Python Backend connected.", "info")
         self.log(f"Default download folder: {self.download_dir}", "info")
-        self.run_health_check(["tidal", "qobuz", "deezer", "apple", "soundcloud"])
+        self.run_health_check(["tidal", "qobuz", "deezer", "apple", "soundcloud", "spoti"])
         try:
             if self._window:
                 self._window.evaluate_js("window.loadHistoryAndProfiles();")
@@ -70,6 +73,29 @@ class SpotiFLAC_API:
         except Exception:
             pass
 
+    def _fetch_track_playcounts(self, sp_client, track_ids: list[str]) -> dict[str, dict]:
+        """Recupera playcount per traccia in parallelo usando get_track_stats."""
+        stats_map: dict[str, dict] = {}
+        unique_ids = [tid for tid in dict.fromkeys(track_ids) if tid]
+        if not unique_ids:
+            return stats_map
+
+        max_workers = min(8, len(unique_ids))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_id = {
+                executor.submit(sp_client.get_track_stats, track_id): track_id
+                for track_id in unique_ids
+            }
+            for future in as_completed(future_to_id):
+                track_id = future_to_id[future]
+                try:
+                    stats = future.result()
+                    if stats.get('playcount'):
+                        stats_map[track_id] = stats
+                except Exception:
+                    continue
+        return stats_map
+
     # ── Profile & History API ─────────────────────────────────────────────────
 
     def get_history(self):
@@ -92,6 +118,84 @@ class SpotiFLAC_API:
             return get_profile(name) or {}
         except Exception:
             return {}
+
+    def search_provider(self, query, limit=20):
+        """Search music providers (Spotify) for metadata matching `query`.
+
+        Returns a list of plain dicts serializable to JSON.
+        """
+        try:
+            from SpotiFLAC.providers.spotify_metadata import SpotifyMetadataClient
+            client = SpotifyMetadataClient()
+            tracks = client.search_tracks(query, limit=limit)
+            out = []
+            for t in tracks:
+                out.append({
+                    "id": getattr(t, 'id', ''),
+                    "title": getattr(t, 'title', ''),
+                    "artist": getattr(t, 'artists', ''),
+                    "album": getattr(t, 'album', ''),
+                    "duration_ms": getattr(t, 'duration_ms', 0),
+                    "cover": getattr(t, 'cover_url', ''),
+                    "external_url": getattr(t, 'external_url', ''),
+                    "preview_url": getattr(t, 'preview_url', ''),
+                    "playcount": getattr(t, 'plays', ''),
+                    "explicit": getattr(t, 'is_explicit', False),
+                    "isrc": getattr(t, 'isrc', ''),
+                    "provider": "spotify",
+                })
+            return out
+        except Exception as e:
+            self.log(f"search_provider error: {e}", "error")
+            return []
+
+    def _search_provider_thread(self, query, limit):
+        try:
+            from SpotiFLAC.providers.spotify_metadata import SpotifyMetadataClient
+            client = SpotifyMetadataClient()
+            tracks = client.search_tracks(query, limit=limit)
+            out = []
+            for t in tracks:
+                out.append({
+                    "id": getattr(t, 'id', ''),
+                    "title": getattr(t, 'title', ''),
+                    "artist": getattr(t, 'artists', ''),
+                    "album": getattr(t, 'album', ''),
+                    "duration_ms": getattr(t, 'duration_ms', 0),
+                    "cover": getattr(t, 'cover_url', ''),
+                    "external_url": getattr(t, 'external_url', ''),
+                    "preview_url": getattr(t, 'preview_url', ''),
+                    "playcount": getattr(t, 'plays', ''),
+                    "explicit": getattr(t, 'is_explicit', False),
+                    "isrc": getattr(t, 'isrc', ''),
+                    "provider": "spotify",
+                })
+            payload = json.dumps(out)
+            if self._window:
+                self._window.evaluate_js(f"window.app_handle_provider_search_results({payload});")
+        except Exception as e:
+            msg = json.dumps(str(e))
+            if self._window:
+                self._window.evaluate_js(f"window.app_handle_provider_search_error({msg});")
+
+    def search_provider_async(self, query, limit=20):
+        if not query:
+            return {"status": "empty"}
+        threading.Thread(target=self._search_provider_thread, args=(query, limit), daemon=True).start()
+        return {"status": "started"}
+
+    def search_code(self, query, path='.', limit=200):
+        """Search repository codebase (substring case-insensitive).
+
+        Returns list of {path, line, snippet}.
+        """
+        try:
+            from SpotiFLAC.core.code_search import search_code
+            results = search_code(query, path=path or '.', limit=limit or 200)
+            return results
+        except Exception as e:
+            self.log(f"search_code error: {e}", "error")
+            return []
 
     def remove_history_item(self, url):
         try:
@@ -152,6 +256,20 @@ class SpotiFLAC_API:
                     self._window.evaluate_js(f"window.updateFolderLabel({json.dumps(self.download_dir)});")
                 except Exception:
                     pass
+
+    def open_config_folder(self):
+        config_dir = os.path.join(os.path.expanduser('~'), '.cache', 'spotiflac')
+        try:
+            os.makedirs(config_dir, exist_ok=True)
+            if sys.platform == 'darwin':
+                subprocess.Popen(['open', config_dir])
+            elif sys.platform == 'win32':
+                os.startfile(config_dir)
+            else:
+                subprocess.Popen(['xdg-open', config_dir])
+            self.log(f"Opened config folder: {config_dir}", "ok")
+        except Exception as e:
+            self.log(f"Failed opening config folder: {e}", "error")
 
     def open_url(self, url):
         import webbrowser
@@ -257,20 +375,44 @@ class SpotiFLAC_API:
 
     def _fetch_metadata_task(self, url, include_featuring=False):
         try:
-            self.set_progress("Fetching metadata…")
-            self.log(f"Analysing URL: {url}", "info")
-
-            if "tidal.com" in url:
-                from SpotiFLAC.providers.tidal_metadata import TidalMetadataClient
-                client = TidalMetadataClient()
-            elif "music.apple.com" in url:
-                from SpotiFLAC.providers.apple_music_metadata import AppleMusicMetadataClient
-                client = AppleMusicMetadataClient()
+            self.set_progress("Recupero metadati…")
+            self.log(f"Analisi input: {url}", "info")
+    
+            # ── Rilevamento: è un URL o una query di ricerca? ──────────────────
+            stripped = url.strip()
+            is_url = (
+                stripped.startswith("http")
+                or stripped.startswith("spotify:")
+            )
+    
+            if is_url:
+                # ── Scelta client in base al dominio ───────────────────────────
+                if "tidal.com" in url:
+                    from SpotiFLAC.providers.tidal_metadata import TidalMetadataClient
+                    client = TidalMetadataClient()
+                elif "music.apple.com" in url:
+                    from SpotiFLAC.providers.apple_music_metadata import AppleMusicMetadataClient
+                    client = AppleMusicMetadataClient()
+                else:
+                    from SpotiFLAC.providers.spotify_metadata import SpotifyMetadataClient
+                    client = SpotifyMetadataClient()
             else:
+                # ── Ricerca testuale — sempre SpotifyMetadataClient ─────────────
                 from SpotiFLAC.providers.spotify_metadata import SpotifyMetadataClient
                 client = SpotifyMetadataClient()
-
-            collection_name, tracks = client.get_url(url, include_featuring=include_featuring)
+    
+            # ── Chiamata universale ────────────────────────────────────────────
+            # get_url ora restituisce (nome, tracce) OPPURE (nome, tracce, cover)
+            result          = client.get_url(stripped, include_featuring=include_featuring)
+            collection_name = result[0]
+            tracks          = result[1]
+            collection_cover = result[2] if len(result) > 2 else ""
+    
+            # cover: usa quella esplicita, poi il cover della prima traccia
+            cover = (
+                collection_cover
+                or (getattr(tracks[0], "cover_url", "") if tracks else "")
+            )
 
             if not tracks:
                 self.log("No tracks found at this URL.", "error")
@@ -283,7 +425,6 @@ class SpotiFLAC_API:
             playcount_map = {}
             if "spotify.com" in url:
                 try:
-                    self.log("Attempting to fetch playcount…", "info")
                     from SpotiFLAC.core.spotfetch import SpotifyWebClient
                     sp_client = SpotifyWebClient()
                     
@@ -291,30 +432,52 @@ class SpotiFLAC_API:
                         # Initialize with timeout (5 seconds)
                         sp_client.initialize()
                         
-                        # Try to extract playlist ID from URL
+                        # Try to extract playlist / track / artist info from URL
                         import re
                         playlist_match = re.search(r'playlist[:/]([a-zA-Z0-9]+)', url)
+                        track_match = re.search(r'track[:/]([a-zA-Z0-9]+)', url)
+                        lower_url = url.lower()
+                        is_artist = "/artist/" in lower_url or "spotify:artist:" in lower_url
+
                         if playlist_match:
+                            self.log("Attempting to fetch playcount…", "info")
                             playlist_id = playlist_match.group(1)
                             playcount_map = sp_client.get_playlist_stats(playlist_id)
+                        elif track_match and len(tracks) == 1 and not is_artist:
+                            self.log("Attempting to fetch playcount…", "info")
+                            track_id = track_match.group(1)
+                            stats = sp_client.get_track_stats(track_id)
+                            if stats.get('playcount'):
+                                playcount_map[track_id] = stats.get('playcount')
+                        elif is_artist:
+                            track_ids = [
+                                getattr(t, 'id', '')
+                                for t in tracks
+                                if getattr(t, 'id', '') and not getattr(t, 'plays', '')
+                            ]
+                            if track_ids:
+                                self.log(
+                                    f"Attempting to fetch playcount for artist tracks ({len(track_ids)} tracks)…",
+                                    "info"
+                                )
+                                playcount_map = self._fetch_track_playcounts(sp_client, track_ids)
+                            else:
+                                playcount_map = {}
                         else:
-                            # For individual tracks, get playcount per track
-                            for t in tracks:
-                                track_id = getattr(t, 'id', '')
-                                if track_id:
-                                    stats = sp_client.get_track_stats(track_id)
-                                    if stats.get('playcount'):
-                                        playcount_map[track_id] = stats.get('playcount')
+                            # Fallback for other multi-track URLs; avoid extremely slow serial fetch
+                            pass
                     except Exception as auth_err:
                         self.log(f"Playcount unavailable: {type(auth_err).__name__}", "info")
                         
-                except Exception as e:
+                except Exception:
                     pass  # Silently skip playcount on any error
 
             for i, t in enumerate(tracks):
                 track_id = getattr(t, 'id', '')
                 _pc_val = playcount_map.get(track_id, '') if playcount_map else ''
                 playcount = _pc_val.get('playcount', '') if isinstance(_pc_val, dict) else _pc_val
+                if not playcount:
+                    playcount = getattr(t, 'plays', '')
                 track_data.append({
                     "index":       i,
                     "id":          track_id,
@@ -325,6 +488,7 @@ class SpotiFLAC_API:
                     "explicit":    getattr(t, 'explicit', False),
                     "isrc":        getattr(t, 'isrc', ''),
                     "external_url": getattr(t, 'external_url', ''),
+                    "preview_url": getattr(t, 'preview_url', ''),
                     "playcount":   playcount,
                 })
 
@@ -341,7 +505,7 @@ class SpotiFLAC_API:
                 display_artist = tracks[0].artists if tracks else ""
 
             self.set_metadata(display_title, display_artist,
-                              tracks[0].cover_url if tracks else "", badge)
+                              cover, badge)
 
             self.log(f"Found: {collection_name} ({len(tracks)} track(s)). Choose songs to download.", "ok")
             self.set_progress("Ready for download.")
@@ -485,6 +649,7 @@ class SpotiFLAC_API:
                     loop                    = loop_minutes,
                 )
 
+            self._push_download_stats()
             self.set_progress("Complete!")
             self.log(f"All tracks saved to: {self.download_dir}", "ok")
             try:
@@ -496,6 +661,7 @@ class SpotiFLAC_API:
         except Exception as e:
             self.log(f"Download error: {str(e)}", "error")
             self.set_progress("Error.")
+            self._push_download_stats()
             try:
                 if self._window:
                     self._window.evaluate_js("window.app_download_finished(false);")
