@@ -64,9 +64,45 @@ class SpotiFLAC_API:
         except Exception:
             pass
 
-    def set_metadata(self, title, artist, cover="", quality="FLAC"):
-        data = json.dumps({"title": title, "artist": artist,
-                           "cover": cover, "quality": quality})
+    def set_metadata(
+        self,
+        title,
+        artist,
+        cover="",
+        quality="FLAC",
+        playlist_description=None,
+        playlist_followers=None,
+        playlist_owner="",
+        source="",
+        artist_listeners=None,
+        artist_rank=None,
+        artist_verified=False,
+        artist_biography=None,
+    ):
+        payload = {
+            "title": title,
+            "artist": artist,
+            "cover": cover,
+            "quality": quality,
+        }
+        if playlist_description is not None:
+            payload["description"] = playlist_description
+        if playlist_followers is not None:
+            payload["followers"] = playlist_followers
+        if playlist_owner:
+            payload["owner"] = playlist_owner
+        if source:
+            payload["source"] = source
+        if artist_listeners is not None:
+            payload["artist_listeners"] = artist_listeners
+        if artist_rank is not None:
+            payload["artist_rank"] = artist_rank
+        if artist_verified:
+            payload["artist_verified"] = artist_verified
+        if artist_biography:
+            payload["artist_biography"] = artist_biography
+
+        data = json.dumps(payload)
         try:
             if self._window:
                 self._window.evaluate_js(f"window.app_set_metadata({data});")
@@ -407,12 +443,17 @@ class SpotiFLAC_API:
             collection_name = result[0]
             tracks          = result[1]
             collection_cover = result[2] if len(result) > 2 else ""
-    
+            collection_meta  = result[3] if len(result) > 3 else {}
+
             # cover: usa quella esplicita, poi il cover della prima traccia
-            cover = (
-                collection_cover
-                or (getattr(tracks[0], "cover_url", "") if tracks else "")
-            )
+            cover = collection_cover or ""
+            if not cover:
+                # Use track cover only when the collection itself has no cover and
+                # the URL is not a playlist. Playlist cards should not display
+                # the first track cover as if it were the playlist cover.
+                lower_url = url.lower()
+                if "/album/" in lower_url or "/artist/" in lower_url or lower_url.startswith("spotify:album:") or lower_url.startswith("spotify:artist:"):
+                    cover = getattr(tracks[0], "cover_url", "") if tracks else ""
 
             if not tracks:
                 self.log("No tracks found at this URL.", "error")
@@ -472,31 +513,44 @@ class SpotiFLAC_API:
                 except Exception:
                     pass  # Silently skip playcount on any error
 
+            # ── Ciclo estrazione metadati potenziato ──
             for i, t in enumerate(tracks):
                 track_id = getattr(t, 'id', '')
+                
+                # Cerca di recuperare i dati in modo dinamico
+                title   = getattr(t, 'title', getattr(t, 'name', f'Track {i+1}'))
+                # Gestisce sia se 'artists' è una stringa che una lista
+                raw_art = getattr(t, 'artists', getattr(t, 'artist', 'Unknown'))
+                artist  = ", ".join(raw_art) if isinstance(raw_art, list) else str(raw_art)
+                
+                # Prendi l'album se esiste
+                album = getattr(t, 'album', getattr(t, 'album_name', '—'))
+                
                 _pc_val = playcount_map.get(track_id, '') if playcount_map else ''
                 playcount = _pc_val.get('playcount', '') if isinstance(_pc_val, dict) else _pc_val
                 if not playcount:
                     playcount = getattr(t, 'plays', '')
+
                 track_data.append({
-                    "index":       i,
-                    "id":          track_id,
-                    "title":       getattr(t, 'title', f'Track {i+1}'),
-                    "artist":      getattr(t, 'artists', ''),
-                    "cover":       getattr(t, 'cover_url', ''),
-                    "duration_ms": getattr(t, 'duration_ms', 0),
-                    "explicit":    getattr(t, 'explicit', False),
-                    "isrc":        getattr(t, 'isrc', ''),
+                    "index":        i,
+                    "id":           track_id,
+                    "title":        title,
+                    "artist":       artist,   # Passiamo la stringa formattata
+                    "album":        album,    # AGGIUNTO: ora passa l'album
+                    "cover":        getattr(t, 'cover_url', ''),
+                    "duration_ms":  getattr(t, 'duration_ms', 0),
+                    "explicit":     getattr(t, 'is_explicit', False),
+                    "isrc":         getattr(t, 'isrc', ''),
                     "external_url": getattr(t, 'external_url', ''),
-                    "preview_url": getattr(t, 'preview_url', ''),
-                    "playcount":   playcount,
+                    "preview_url":  getattr(t, 'preview_url', ''),
+                    "playcount":    playcount,
                 })
 
             badge = f"FLAC — {len(tracks)} tracks" if len(tracks) > 1 else "FLAC"
 
             # For artist URLs show only artist name
             lower_url = url.lower()
-            is_artist = "/artist/" in lower_url
+            is_artist = "/artist/" in lower_url or "spotify:artist:" in lower_url
             if is_artist:
                 display_title  = collection_name
                 display_artist = ""
@@ -504,15 +558,35 @@ class SpotiFLAC_API:
                 display_title  = collection_name
                 display_artist = tracks[0].artists if tracks else ""
 
-            self.set_metadata(display_title, display_artist,
-                              cover, badge)
+            if is_artist:
+                self.set_metadata(
+                    display_title,
+                    display_artist,
+                    cover,
+                    badge,
+                    artist_listeners=collection_meta.get("listeners"),
+                    artist_rank=collection_meta.get("rank"),
+                    artist_verified=collection_meta.get("verified", False),
+                    artist_biography=collection_meta.get("biography", ""),
+                )
+            else:
+                self.set_metadata(
+                    display_title,
+                    display_artist,
+                    cover,
+                    badge,
+                    playlist_description=collection_meta.get("description"),
+                    playlist_followers=collection_meta.get("followers"),
+                    playlist_owner=collection_meta.get("owner", ""),
+                    source=collection_meta.get("source", ""),
+                )
 
             self.log(f"Found: {collection_name} ({len(tracks)} track(s)). Choose songs to download.", "ok")
             self.set_progress("Ready for download.")
 
             try:
                 from SpotiFLAC.core.session_memory import add_url_to_history
-                cover = getattr(tracks[0], 'cover_url', '') if tracks else ''
+                cover = collection_cover or ''
                 _lower = url.lower()
                 if '/track/' in _lower or 'watch?v=' in _lower or 'youtu.be' in _lower:
                     _url_type = 'track'
@@ -520,10 +594,12 @@ class SpotiFLAC_API:
                     _url_type = 'album'
                 elif '/playlist/' in _lower or ('list=' in _lower and 'olak5uy_' not in _lower):
                     _url_type = 'playlist'
-                elif '/artist/' in _lower:
+                elif '/artist/' in _lower or 'spotify:artist:' in _lower:
                     _url_type = 'artist'
                 else:
                     _url_type = ''
+                if not cover and _url_type in ('album', 'artist'):
+                    cover = getattr(tracks[0], 'cover_url', '') if tracks else ''
                 _artist = getattr(tracks[0], 'artists', '') if tracks and _url_type == 'track' else ''
                 add_url_to_history(url, label=collection_name, cover=cover,
                                    track_count=len(tracks), url_type=_url_type, artist=_artist)
