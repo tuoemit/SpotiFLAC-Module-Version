@@ -80,6 +80,7 @@
       --button-text:#f5f5f7;
       --button-border: rgba(255,255,255,0.1);
     }
+    body.dark-theme .s-section { background: #0a0a0a; }
 
     html, body { height: 100%; overflow: hidden; background: var(--bg); }
     body {
@@ -366,13 +367,8 @@
     #album-cover img { width: 100%; height: 100%; object-fit: cover; border-radius: 18px; }
     #album-info { flex: 1; min-width: 0; }
     #album-type-badge {
-      display: inline-flex; align-items: center; justify-content: center;
-      background: var(--yellow-bg); color: #7c5200;
-      font-family: 'JetBrains Mono', monospace; font-size: 10px;
-      text-transform: uppercase; letter-spacing: .08em;
-      margin-bottom: 10px; padding: 6px 10px; border-radius: 999px;
-      border: 1px solid rgba(212,162,0,.25);
-      width: fit-content;
+      margin-bottom: 10px;
+      font-size: 13px;
     }
     #album-title {
       font-size: 28px; font-weight: 800; line-height: 1.05;
@@ -382,6 +378,9 @@
     #album-subtitle {
       font-size: 13px; color: var(--text2); margin-bottom: 12px;
       line-height: 1.5;
+    }
+    #album-artist {
+      display: none;
     }
     #album-meta {
       font-size: 12px; color: var(--text2); margin-bottom: 12px;
@@ -618,9 +617,9 @@
     }
     #recent-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
       justify-content: start;
-      gap: 14px;
+      gap: 12px;
       width: 100%;
       margin: 0 auto;
     }
@@ -655,7 +654,7 @@
       width: 100%; aspect-ratio: 1; background: var(--surface3);
       background-size: cover; background-position: center;
       display: flex; align-items: center; justify-content: center;
-      font-size: 32px; color: var(--muted);
+      font-size: 35px; color: var(--muted);
       position: relative;
     }
     .rc-remove {
@@ -908,7 +907,7 @@
     .tab-bar::-webkit-scrollbar { display: none; }
     .stab {
       display: inline-flex; align-items: center; gap: 8px;
-      padding: 12px 20px; background: transparent; border: 1px solid transparent; border-bottom: none;
+      padding: 8px 16px; background: transparent; border: 1px solid transparent; border-bottom: none;
       color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600;
       cursor: pointer; border-radius: 8px 8px 0 0; white-space: nowrap;
       transition: all var(--t); margin-bottom: -1px;
@@ -1007,7 +1006,7 @@
     }
     .sort-item {
       display: flex; align-items: center; gap: 8px;
-      padding: 7px 10px; background: #ffffff;
+      padding: 7px 10px; background: var(--surface);
       border: 1.5px solid #d1d1d6; border-radius: var(--radius-sm);
       cursor: grab; transition: border-color var(--t), background var(--t);
     }
@@ -1099,7 +1098,7 @@
       white-space: nowrap; pointer-events: none;
       opacity: 0; transition: opacity .12s ease;
       z-index: 600;
-      box-shadow: 0 4px 14px rgba(0,0,0,.18);
+      box-shadow: 0 4px 14px rgb(0, 0, 0);
     }
     .nav-btn[data-label]:hover::after { opacity: 1; }
 
@@ -1471,7 +1470,7 @@
         <div class="hero-text">
           <div class="hero-headline">
             <div class="hero-logo">
-              <img src="assets/icons/spotiflac.svg" alt="SpotiFLAC logo" class="hero-icon">
+              <img src="assets/icons/logo.svg" alt="SpotiFLAC logo" class="hero-icon">
             </div>
             <div class="hero-main">
               <div class="hero-title">SpotiFLAC</div>
@@ -2445,7 +2444,9 @@ window.app_set_metadata = (data) => {
       d.artist_listeners,
       d.artist_rank,
       d.artist_verified,
-      d.artist_biography
+      d.artist_biography,
+      d.release_date,
+      d.track_count
     );
   } catch(e) {}
 };
@@ -2553,7 +2554,13 @@ function setPlaycountHeaderLabel(label) {
 }
 
 // ── Album card ────────────────────────────────────────────────────────────────
-function setAlbumCard(title, artist, coverUrl, quality, description, followers, owner, source, artistListeners, artistRank, artistVerified, artistBiography) {
+let g_albumReleaseDate = '';
+let g_albumTrackCount = 0;
+
+function setAlbumCard(title, artist, coverUrl, quality, description, followers, owner, source, artistListeners, artistRank, artistVerified, artistBiography, releaseDate, trackCount) {
+  g_albumReleaseDate = releaseDate || '';
+  g_albumTrackCount = trackCount || 0;
+  
   const metaSection = $('track-meta-section');
   if (metaSection) {
     metaSection.innerHTML = '';
@@ -2661,6 +2668,28 @@ function updateAlbumMeta(trackCount) {
   }
 
   $('album-type-badge').textContent = badgeType;
+  
+  // Per gli album, mostra artista, data e numero di tracce nel subtitle
+  if (badgeType === 'ALBUM') {
+    const artistEl = $('album-artist');
+    const artist = artistEl.textContent?.trim() || '';
+    const subtitleEl = $('album-subtitle');
+    
+    let subtitleParts = [];
+    if (artist) subtitleParts.push(artist);
+    if (g_albumReleaseDate) {
+      const dateStr = String(g_albumReleaseDate).split('T')[0];
+      if (dateStr) subtitleParts.push(dateStr);
+    }
+    if (trackCount > 0) {
+      subtitleParts.push(`${trackCount} track${trackCount !== 1 ? 's' : ''}`);
+    }
+    
+    const subtitleText = subtitleParts.join(' · ');
+    subtitleEl.textContent = subtitleText;
+    subtitleEl.style.display = subtitleText ? '' : 'none';
+  }
+  
   const artistEl = $('album-artist');
   const hasArtist = Boolean(artistEl.textContent && artistEl.textContent.trim());
   $('album-meta').classList.toggle('no-artist', !hasArtist);

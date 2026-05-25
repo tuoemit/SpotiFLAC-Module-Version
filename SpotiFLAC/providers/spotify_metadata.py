@@ -462,7 +462,7 @@ class SpotifyMetadataClient:
                 is_explicit=(track_node.get("contentRating", {}).get("label") == "EXPLICIT"),
             ))
 
-        return {"name": album_name, "cover_url": cover}, tracks
+        return {"name": album_name, "cover_url": cover, "release_date": release_date}, tracks
 
     # ------------------------------------------------------------------
     # Playlist
@@ -804,7 +804,13 @@ class SpotifyMetadataClient:
 
         if t == "album":
             album, tracks = self.get_album_tracks(info["id"])
-            return album.get("name", "Unknown Album"), tracks, album.get("cover_url", ""), routing_metadata
+            album_meta = {
+                "cover_url": album.get("cover_url", ""),
+                "release_date": album.get("release_date", ""),
+                "track_count": len(tracks),
+            }
+            album_meta.update(routing_metadata)
+            return album.get("name", "Unknown Album"), tracks, album.get("cover_url", ""), album_meta
 
         if t == "playlist":
             playlist, tracks, cover = self.get_playlist_tracks(info["id"])

@@ -78,6 +78,8 @@ class SpotiFLAC_API:
         artist_rank=None,
         artist_verified=False,
         artist_biography=None,
+        release_date=None,
+        track_count=None,
     ):
         payload = {
             "title": title,
@@ -101,6 +103,10 @@ class SpotiFLAC_API:
             payload["artist_verified"] = artist_verified
         if artist_biography:
             payload["artist_biography"] = artist_biography
+        if release_date:
+            payload["release_date"] = release_date
+        if track_count is not None:
+            payload["track_count"] = track_count
 
         data = json.dumps(payload)
         try:
@@ -599,6 +605,8 @@ class SpotiFLAC_API:
                     playlist_followers=collection_meta.get("followers"),
                     playlist_owner=collection_meta.get("owner", ""),
                     source=collection_meta.get("source", ""),
+                    release_date=collection_meta.get("release_date"),
+                    track_count=collection_meta.get("track_count"),
                 )
 
             self.log(f"Found: {collection_name} ({len(tracks)} track(s)). Choose songs to download.", "ok")
