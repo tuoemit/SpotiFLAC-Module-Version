@@ -559,6 +559,18 @@
       z-index: 100;
     }
     .ta-btn:hover::after { opacity: 1; }
+    .act-btn[data-tip] { position: relative; }
+    .act-btn[data-tip]::after {
+      content: attr(data-tip);
+      position: absolute; bottom: calc(100% + 6px); left: 50%;
+      transform: translateX(-50%);
+      background: var(--surface3); color: var(--text);
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      padding: 3px 7px; border-radius: 4px; white-space: nowrap;
+      pointer-events: none; opacity: 0; transition: opacity .15s;
+      z-index: 100;
+    }
+    .act-btn[data-tip]:hover::after { opacity: 1; }
 
     /* ── RECENT FETCHES ── */
     #recent-wrap { 
@@ -2611,7 +2623,7 @@ function showSingleTrackCard(t) {
 
   const metas = [
     { label: 'Album',        value: t.album || t.album_name || t.release || null },
-    { label: 'Release Date', value: t.release_date || t.year || null },
+    { label: 'Release Date', value: t.release_date ? String(t.release_date).split('T')[0] : (t.year || null) },
     { label: 'Total Plays',  value: playcountVal },
     { label: 'Copyright',    value: t.copyright || null },
   ].filter(m => m.value);
@@ -2640,24 +2652,24 @@ function showSingleTrackCard(t) {
   const extUrl     = t.external_url || t.externalUrl || t.link || '';
   const trackId    = t.id || '';
   $('album-actions').innerHTML = `
-    <button class="act-btn primary" onclick="downloadSingle(0)">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-      Download
-    </button>
-    <button class="act-btn secondary" title="Play Preview" data-track-id="${trackId}" onclick="playPreview(0)">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-    </button>
-    <button class="act-btn secondary" title="Save Lyrics (.lrc)" onclick="downloadLyrics(0)">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-    </button>
-    <button class="act-btn secondary" title="Save Cover (.jpg)" onclick="downloadCover(0)">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-    </button>
-    ${extUrl ? `
-    <button class="act-btn secondary" title="Open in Spotify" onclick="openExternal(0)">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-    </button>` : ''}
-  `;
+  <button class="act-btn primary" data-tip="Download" onclick="downloadSingle(0)">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    Download
+  </button>
+  <button class="act-btn secondary ta-preview" data-tip="Play Preview" data-preview-index="0" data-track-id="${trackId}" onclick="playPreview(0)">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+  </button>
+  <button class="act-btn secondary ta-lyrics" data-tip="Save Lyrics (.lrc)" data-track-index="0" onclick="downloadLyrics(0)">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+  </button>
+  <button class="act-btn secondary ta-cover" data-tip="Save Cover (.jpg)" data-track-index="0" onclick="downloadCover(0)">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+  </button>
+  ${extUrl ? `
+  <button class="act-btn secondary" data-tip="Open in Spotify" onclick="openExternal(0)">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+  </button>` : ''}
+`;
 }
 
 function closeAlbumCard() {
@@ -2916,7 +2928,8 @@ function openExternal(i) {
 function downloadLyrics(i) {
   const t   = currentTracks[i];
   if (!t) return;
-  const btn = document.querySelector(`#track-row-${i} .ta-btn.ta-lyrics`);
+  const btn = document.querySelector(`#track-row-${i} .ta-btn.ta-lyrics`)
+         || document.querySelector(`.ta-lyrics[data-track-index="${i}"]`);
   setTaBtnState(btn, 'loading');
   logMessage(`Fetching lyrics: ${t.title}…`, 'info');
   if (window.pywebview?.api) {
@@ -2932,7 +2945,8 @@ function downloadLyrics(i) {
 function downloadCover(i) {
   const t   = currentTracks[i];
   if (!t) return;
-  const btn = document.querySelector(`#track-row-${i} .ta-btn.ta-cover`);
+  const btn = document.querySelector(`#track-row-${i} .ta-btn.ta-cover`)
+         || document.querySelector(`.ta-cover[data-track-index="${i}"]`);
   setTaBtnState(btn, 'loading');
   logMessage(`Downloading cover: ${t.title}…`, 'info');
   if (window.pywebview?.api) {
