@@ -399,6 +399,29 @@ class SpotiFLAC_API:
         except Exception as e:
             self.log(f"Cover download error: {e}", "error")
 
+    # ── Lazy Loading - Anteprima traccia ──────────────────────────────────────
+
+    def get_track_preview(self, track_id: str) -> str:
+        """Recupera l'URL di anteprima per una traccia (lazy loading).
+        
+        Questo metodo è invocato dalla GUI solo quando l'utente clicca su 'play' o 'preview'
+        per evitare richieste di rete durante il caricamento iniziale della lista.
+        
+        Args:
+            track_id: ID della traccia Spotify
+            
+        Returns:
+            URL dell'anteprima MP3 (stringa vuota se non disponibile)
+        """
+        try:
+            from SpotiFLAC.providers.spotify_metadata import SpotifyMetadataClient
+            client = SpotifyMetadataClient()
+            preview_url = client.get_track_preview(track_id)
+            return preview_url or ""
+        except Exception as e:
+            self.log(f"Failed to fetch preview for track {track_id}: {e}", "debug")
+            return ""
+
     # ── Phase 1: Metadata fetch ───────────────────────────────────────────────
 
     def fetch_metadata(self, url):
@@ -541,6 +564,8 @@ class SpotiFLAC_API:
                     "external_url": getattr(t, 'external_url', ''),
                     "preview_url":  getattr(t, 'preview_url', ''),
                     "playcount":    playcount,
+                    "release_date": getattr(t, 'release_date', ''), 
+                    "copyright":    getattr(t, 'copyright', ''),
                 })
 
             badge = f"FLAC — {len(tracks)} tracks" if len(tracks) > 1 else "FLAC"
