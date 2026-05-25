@@ -295,10 +295,38 @@ class SpotifyMetadataClient:
         }
         data = self.web_client.query(payload)
         track_union = data.get("data", {}).get("trackUnion", {})
+        print("--- DUMP TRACK UNION KEYS ---")
+        print(list(track_union.keys()))
 
         album_data = track_union.get("albumOfTrack", {})
         cover = _best_cover(self.web_client.extract_cover_image(album_data.get("coverArt", {})))
-        artists_str = _join_artists(track_union.get("artists", {}))
+        
+        # ------------------------------------------------------------------
+        # Estrazione Artisti (FIX per nuovo schema Spotify)
+        # ------------------------------------------------------------------
+        artists_list = []
+        
+        # 1. Estrai il primo artista
+        first = track_union.get("firstArtist")
+        if first:
+            artists_list.extend(_extract_artist_names(first))
+            
+        # 2. Estrai gli altri artisti
+        others = track_union.get("otherArtists")
+        if others:
+            artists_list.extend(_extract_artist_names(others))
+
+        # 3. Fallback all'album se necessario
+        if not artists_list:
+            artists_list = _extract_artist_names(album_data.get("artists", {}))
+            
+        # 4. Fallback finale se tutto fallisce
+        if not artists_list:
+            artists_list = ["Unknown Artist"]
+
+        artists_str = ", ".join(artists_list)
+        # ------------------------------------------------------------------
+        
         composer_str = self.web_client.get_track_composer(track_id)
 
         return TrackMetadata(
@@ -317,10 +345,33 @@ class SpotifyMetadataClient:
             external_url=_track_url(track_id),
             copyright="",
             composer=composer_str,
-            preview_url=track_union.get("previewUrl") or self.web_client.get_preview_url(track_id),
+            preview_url="",
             plays=_safe_playcount(track_union.get("playcount")),
             is_explicit=(track_union.get("contentRating", {}).get("label") == "EXPLICIT"),
         )
+
+    # ------------------------------------------------------------------
+    # Lazy Loading - Anteprima traccia
+    # ------------------------------------------------------------------
+
+    def get_track_preview(self, track_id: str) -> str:
+        """Recupera l'URL di anteprima di una traccia al momento della richiesta (lazy loading).
+        
+        Questo metodo è pensato per essere invocato solo quando l'utente clicca su 'play' o 'preview'
+        nella GUI, evitando richieste di rete durante il caricamento iniziale della lista.
+        
+        Args:
+            track_id: ID della traccia Spotify
+            
+        Returns:
+            URL dell'anteprima MP3 (stringa vuota se non disponibile)
+        """
+        try:
+            preview_url = self.web_client.get_preview_url(track_id)
+            return preview_url or ""
+        except Exception as e:
+            logger.debug(f"[spotify] Failed to fetch preview for track {track_id}: {e}")
+            return ""
 
     # ------------------------------------------------------------------
     # Album
@@ -371,13 +422,10 @@ class SpotifyMetadataClient:
         release_date = album_union.get("date", {}).get("isoString", "")
         total_tracks = album_union.get("tracksV2", {}).get("totalCount", 0)
 
-        # ... (metodo get_album_tracks, dopo il recupero di all_items)
-
         tracks: list[TrackMetadata] = []
         for item in all_items:
             track_node = item.get("track", {})
             
-            # Calcolo sicuro dell'ID
             track_id = track_node.get("id")
             if not track_id:
                 uri = track_node.get("uri", "")
@@ -406,7 +454,7 @@ class SpotifyMetadataClient:
                 external_url=_track_url(track_id), # Usa la variabile validata
                 copyright="",
                 composer="",
-                preview_url=track_node.get("previewUrl", ""),
+                preview_url="",
                 plays=_safe_playcount(track_node.get("playcount")),
                 is_explicit=(track_node.get("contentRating", {}).get("label") == "EXPLICIT"),
             ))
@@ -497,7 +545,7 @@ class SpotifyMetadataClient:
                 external_url=_track_url(track_id),
                 copyright="",
                 composer="",
-                preview_url=track_data.get("previewUrl", "") or track_data.get("preview_url", ""),
+                preview_url="",
                 plays=_safe_playcount(track_data.get("playcount")),
                 is_explicit=(track_data.get("contentRating", {}).get("label") == "EXPLICIT"),
             ))
@@ -774,6 +822,6 @@ class SpotifyMetadataClient:
                 "discography_total": artist.get("discography_total", 0),
             }
             artist_meta.update(routing_metadata)
-            return artist_meta["name"], tracks, "", artist_meta
+            return artist_meta["name"], tracks, artist_meta.get("avatar", ""), artist_meta
 
         raise SpotiflacError(ErrorKind.INVALID_URL, f"Tipo Spotify non supportato: {t}")
