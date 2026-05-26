@@ -652,16 +652,17 @@
     #track-table-wrap::-webkit-scrollbar { width: 4px; }
     #track-table-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 99px; }
     /* Columns: title | album | duration | actions */
-    .track-table-header {
-      max-width: min(100%, 950px);
-      margin: 0 auto 4px auto;
-      display: grid;
-      grid-template-columns: 24px 40px minmax(0,2fr) minmax(0,1.3fr) 80px 150px;
-      padding: 6px 14px;
-      border-bottom: 1px solid var(--border);
-      font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
-      color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
-    }
+   .track-table-header, .track-row {
+     width: 100%;
+     display: grid;
+     /* Modifica questa riga per usare 1fr sulle colonne flessibili */
+     grid-template-columns: 24px 40px 1fr 1fr 80px 150px;
+     align-items: center;
+     padding: 5px 14px;
+     border-radius: var(--radius-sm);
+     transition: background var(--t);
+     box-sizing: border-box; /* Assicura che il padding sia incluso nella larghezza */
+   }
     .track-table-header > div:first-child { display:flex; align-items:center; justify-content:center; }
     .track-table-header input { accent-color: var(--yellow); cursor: pointer; width:14px; height:14px; }
     /* Header style for album column (4th child) */
@@ -669,16 +670,13 @@
       text-align: center; padding-left: 6px;
     }
     .track-row {
-      max-width: min(100%, 950px);
-      margin: 0 auto;
-      display: grid;
-      grid-template-columns: 24px 40px minmax(0,2fr) minmax(0,1.3fr) 80px 150px;
-      align-items: center;
-      padding: 5px 14px;
-      border-radius: var(--radius-sm);
-      transition: background var(--t); cursor: default;
+      cursor: default;
     }
     .track-row:hover { background: var(--surface2); }
+    #track-table-wrap {
+        max-width: 950px;
+        margin: 0 auto;
+    }
     .track-row.done    { background: rgba(34,197,94,.05); }
     .track-row.failed  { background: rgba(239,68,68,.05); }
 
@@ -731,7 +729,7 @@
     .tr-actions { margin-left: 10px; }
 
     /* 4-button action area */
-    .tr-actions { display: flex; gap: 3px; align-items: center; }
+    .tr-actions { display: flex; gap: 3px; align-items: center; justify-content: flex-end; width: 100%;}
     .ta-btn {
       width: 30px; height: 30px; border-radius: 6px;
       background: var(--surface2); border: 1px solid var(--border);
