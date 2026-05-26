@@ -1185,8 +1185,34 @@
 
     /* Sortable lists */
     .sort-list { display: flex; flex-direction: column; gap: 4px; }
-    #services-list { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; }
-    #services-list .sort-item { min-width: 180px; flex: 1 1 auto; }
+    #services-list {
+      display: flex;
+      flex-direction: column; /* Cambiato da row a column */
+      flex-wrap: nowrap;      /* Non va più a capo */
+      gap: 6px;               /* Leggermente più compatto */
+      width: 100%;            /* Occupa tutta la larghezza */
+    }
+
+    #services-list .sort-item {
+      width: 100%;            /* Occupa tutta la larghezza */
+      flex: none;             /* Rimuovi il flex-grow */
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      transition: all var(--t);
+    }
+    .sort-item.inactive {
+      opacity: 0.6;
+      filter: grayscale(1);
+    }
+    .priority-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+      width: 20px;
+      text-align: center;
+      font-weight: 700;
+    }
     .svc-icon {
       display: inline-flex; align-items: center; justify-content: center;
       width: 36px; height: 36px; border-radius: 12px;
@@ -2252,12 +2278,41 @@
 </div>
 
 <script>
+let isDirty = false;
+let initialSettings = {};
+
+// Inizializza lo stato dopo aver caricato le impostazioni
+function initSettingsTracking() {
+    initialSettings = buildConfig();
+    isDirty = false;
+    updateSaveButtonVisual();
+}
+
+function updateSaveButtonVisual() {
+    const btn = document.querySelector('.s-actions .act-btn.primary');
+    if (!btn) return;
+    if (isDirty) {
+        btn.style.opacity = "1";
+        btn.textContent = "Save Changes (Unsaved)";
+        btn.style.borderColor = "var(--red)"; // Visual cue
+    } else {
+        btn.textContent = "Save Changes";
+        btn.style.borderColor = "var(--yellow-d)";
+    }
+}
 // ── Helpers ─────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 const ts = () => new Date().toLocaleTimeString('it-IT');
 
 // ── View switching ───────────────────────────────────────────────────────────
 function switchView(name) {
+  if (isDirty) {
+        if (!confirm("You have unsaved changes. Do you want to leave this page?")) {
+            return; // Interrompe il cambio view
+        }
+        isDirty = false; // Reset forzato se l'utente sceglie di abbandonare
+        updateSaveButtonVisual();
+    }
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-btn[id^="nav-"]').forEach(b => b.classList.remove('active'));
   $('view-' + name)?.classList.add('active');
@@ -2408,6 +2463,15 @@ function loadSettingsFromStorage() {
   }
 }
 
+// Monitora qualsiasi modifica negli input delle impostazioni
+document.querySelector('.s-body').addEventListener('input', (e) => {
+    const current = JSON.stringify(buildConfig());
+    const initial = JSON.stringify(initialSettings);
+    
+    isDirty = (current !== initial);
+    updateSaveButtonVisual();
+});
+
 function showToast(message) {
   const toast = $('save-toast');
   if (!toast) return;
@@ -2428,11 +2492,14 @@ function saveSettings() {
     cfg.font = $('config-font')?.value || DEFAULT_SETTINGS.font;
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(cfg));
     localStorage.setItem('spotiflac-theme-mode', cfg.theme);
+    isDirty = false;
+    initialSettings = cfg;
+    updateSaveButtonVisual();
     logMessage('Settings saved locally.', 'ok');
-    showToast('Impostazioni salvate.');
+    showToast('Settings saved.');
   } catch (e) {
     logMessage('Unable to save settings.', 'error');
-    showToast('Impossibile salvare le impostazioni.');
+    showToast('Unable to save settings.');
   }
 }
 
@@ -2441,6 +2508,9 @@ function resetSettings() {
     localStorage.removeItem(SETTINGS_STORAGE_KEY);
     localStorage.removeItem('spotiflac-theme-mode');
     applySettings(DEFAULT_SETTINGS);
+    isDirty = false; // Reset dello stato
+    initialSettings = buildConfig(); // Aggiorna la baseline al default
+    updateSaveButtonVisual();
     logMessage('Settings reset to defaults.', 'ok');
   } catch (e) {
     logMessage('Unable to reset settings.', 'error');
@@ -2558,19 +2628,35 @@ const DEFAULT_SETTINGS = {
   enrich_providers: ['deezer','apple','qobuz','tidal','soundcloud'],
 };
 
-function buildSortItem(item) {
+function buildSortItem(item, index) {
   const d = document.createElement('div');
-  d.className = 'sort-item';
+  d.className = `sort-item ${item.on ? '' : 'inactive'}`;
   d.dataset.value = item.id;
+  
   const iconHtml = item.iconFile
     ? `<span class="svc-icon ${item.iconClass} icon-image"><img src="assets/icons/${item.iconFile}" alt="${item.label}"></span>`
     : item.icon ? `<span class="svc-icon ${item.iconClass}">${item.icon}</span>` : '';
-  d.innerHTML = `<span class="drag-h">⠿</span>${iconHtml}<input type="checkbox" ${item.on ? 'checked' : ''} onclick="event.stopPropagation()"><span class="svc-name">${item.label}</span>${item.badge ? `<span class="svc-badge">${item.badge}</span>` : ''}`;
+  
+  // Aggiungiamo il numero (index + 1) e il checkbox
+  d.innerHTML = `
+    <span class="priority-num">${index + 1}</span>
+    <span class="drag-h">⠿</span>
+    ${iconHtml}
+    <input type="checkbox" ${item.on ? 'checked' : ''} onclick="event.stopPropagation(); toggleItemActive(this)">
+    <span class="svc-name">${item.label}</span>
+    ${item.badge ? `<span class="svc-badge">${item.badge}</span>` : ''}
+  `;
   return d;
 }
+
+function toggleItemActive(cb) {
+  const item = cb.closest('.sort-item');
+  item.classList.toggle('inactive', !cb.checked);
+}
+
 function populateList(id, items) {
   const el = $(id); el.innerHTML = '';
-  items.forEach(i => el.appendChild(buildSortItem(i)));
+  items.forEach((i, idx) => el.appendChild(buildSortItem(i, idx)));
   makeSortable(el);
 }
 function getChecked(id) {
@@ -4970,7 +5056,15 @@ window.addEventListener('pywebviewready', () => {
 
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', syncSystemTheme);
 loadSettingsFromStorage();
+initSettingsTracking();
 updateSearchMode();
+
+window.addEventListener('beforeunload', function (e) {
+    if (isDirty) {
+        e.preventDefault();
+        e.returnValue = ''; // Standard per attivare l'alert del browser
+    }
+});
 
 // ── Real-time search on keystroke ────────────────────────────────────────────
 let _searchDebounceTimer = null;
