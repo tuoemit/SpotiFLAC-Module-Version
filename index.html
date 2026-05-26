@@ -2769,7 +2769,7 @@ function setAlbumCard(title, artist, coverUrl, quality, description, followers, 
 
   if (isArtistCard) {
     const bio = artistBiography || description || '';
-    subtitle.textContent = bio;
+    subtitle.innerHTML = bio;
     subtitle.className = bio ? 'artist-bio' : '';
     subtitle.style.display = bio ? '' : 'none';
   } else {
