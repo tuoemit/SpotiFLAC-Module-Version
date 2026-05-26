@@ -473,7 +473,167 @@
       outline: none; cursor: pointer;
     }
 
+    /* ── Text Search Results ── */
+    /* ── Search results panel (tab-based) ─────────────────────────────────── */
+    #text-search-results {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .sr-panel {
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+    }
+
+    /* Tab bar */
+    .sr-tab-bar {
+      display: flex;
+      align-items: stretch;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .sr-tab-bar::-webkit-scrollbar { display: none; }
+
+    .sr-tab {
+      padding: 10px 16px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+      background: none;
+      border-top: none;
+      border-left: none;
+      border-right: none;
+      transition: color var(--t), border-color var(--t);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .sr-tab:hover { color: var(--text2); }
+    .sr-tab.active { color: var(--yellow); border-bottom-color: var(--yellow); }
+
+    .sr-tab-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      background: var(--surface3);
+      color: var(--muted);
+      border-radius: 99px;
+      padding: 1px 6px;
+      font-weight: 600;
+    }
+    .sr-tab.active .sr-tab-badge { background: color-mix(in srgb, var(--yellow) 15%, transparent); color: var(--yellow); }
+
+    /* Filter row */
+    .sr-filter-row {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .sr-filter-input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--text);
+      outline: none;
+      box-sizing: border-box;
+      font-family: inherit;
+      transition: border-color var(--t);
+    }
+    .sr-filter-input:focus { border-color: var(--yellow); }
+    .sr-filter-input::placeholder { color: var(--muted); }
+
+    /* Results list */
+    .sr-tab-content {
+      display: flex;
+      flex-direction: column;
+      max-height: 380px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border2) transparent;
+    }
+    .sr-tab-content::-webkit-scrollbar { width: 4px; }
+    .sr-tab-content::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 99px; }
+
+    /* Individual result row */
+    .search-result-item {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      transition: background var(--t);
+    }
+    .search-result-item:last-child { border-bottom: none; }
+    .search-result-item:hover { background: var(--surface2); }
+
+    .search-result-thumbnail {
+      width: 40px;
+      height: 40px;
+      border-radius: 6px;
+      background: var(--surface3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .search-result-thumbnail.artist-thumb { border-radius: 50%; }
+    .search-result-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
+
+    .search-result-info {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      flex: 1;
+      min-width: 0;
+    }
+    .search-result-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .search-result-meta {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sr-duration {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .search-result-empty {
+      padding: 28px 14px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+
     /* Track table */
+
     #track-table-wrap {
       flex: 1; overflow: visible; padding: 0 18px 14px; min-height: 0;
     }
@@ -1633,6 +1793,11 @@
         </div>
       </div>
 
+      <!-- Text Search Results Container -->
+      <div id="text-search-container" class="hidden" style="padding: 0 18px 14px; border-bottom: 1px solid var(--border); max-width: 100%;">
+        <div id="text-search-results" style="display: flex; flex-direction: column; gap: 10px; max-width: 820px; margin: 0 auto;"></div>
+      </div>
+
       <div id="main-split">
         <div id="result-panel">
 
@@ -2679,6 +2844,7 @@ window.showTracklist = (tracksJson) => {
   const tracks = typeof tracksJson === 'string' ? JSON.parse(tracksJson) : tracksJson;
   renderTracks(tracks, 1);
   $('fetchBtn').disabled = false;
+  $('text-search-container')?.classList.add('hidden');
 };
 window.app_download_finished = (success = true) => {
   const activeItems = queue.map((item, qi) => item.status === 'active' ? qi : -1).filter(i => i >= 0);
@@ -2872,6 +3038,7 @@ function setAlbumCard(title, artist, coverUrl, quality, description, followers, 
     coverEl.innerHTML = '🎵';
   }
   $('album-card').classList.remove('hidden');
+  $('text-search-container')?.classList.add('hidden');
 }
 function updateAlbumMeta(trackCount) {
   const searchMode = $('searchMode')?.value === 'search';
@@ -3033,6 +3200,7 @@ function closeAlbumCard() {
   setFetchingState(false);
   stopCurrentPreview();
   $('album-card').classList.add('hidden');
+  $('text-search-container')?.classList.add('hidden');
   $('album-subtitle').style.display = '';
   $('track-controls').classList.add('hidden');
   $('track-table-wrap').classList.add('hidden');
@@ -3815,19 +3983,152 @@ function renderCodeResults(results) {
 }
 
 window.app_handle_provider_search_results = function(results) {
-  setFetchingState('success');
-  if (!results || !results.length) {
-    $('track-rows').innerHTML = `<div class="queue-empty">No provider results found.</div>`;
-    $('track-controls').classList.add('hidden');
-    $('track-table-wrap').classList.remove('hidden');
-    setStatus('No results found.', false);
+  const isSearchMode = $('searchMode')?.value === 'search';
+  if (!isSearchMode) {
+    setFetchingState('success');
   } else {
-    renderTracks(results, 1);
-    setStatus(`Found ${results.length} results`, false);
+    isFetchingData = false;
+    const fetchBtn = $('fetchBtn');
+    if (fetchBtn) fetchBtn.disabled = false;
   }
-  $('urlInput').disabled = false;
-  $('fetchBtn').disabled = false;
+
+  // ── Build data ────────────────────────────────────────────────────────────
+  const allItems = [
+    ...(results.tracks   || []).map(i => ({ ...i, _kind: 'track' })),
+    ...(results.albums   || []).map(i => ({ ...i, _kind: 'album' })),
+    ...(results.artists  || []).map(i => ({ ...i, _kind: 'artist' })),
+    ...(results.playlists|| []).map(i => ({ ...i, _kind: 'playlist' })),
+  ];
+  const counts = {
+    all:      allItems.length,
+    track:    (results.tracks    || []).length,
+    album:    (results.albums    || []).length,
+    artist:   (results.artists   || []).length,
+    playlist: (results.playlists || []).length,
+  };
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  let activeTab = 'all';
+  let filterVal = '';
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function fmtMs(ms) {
+    if (!ms) return '';
+    const s = Math.round(ms / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  function defaultIcon(kind) {
+    return kind === 'artist' ? '👤' : kind === 'album' ? '💿' : kind === 'playlist' ? '📋' : '🎵';
+  }
+
+  function makeItemHTML(item) {
+    const url  = item.external_url || item.external_urls || '';
+    const img  = item.images || item.cover || '';
+    const name = escHtml(item.name || item.title || '');
+    const meta = escHtml(item.artists || item.artist || item.owner || '');
+    const dur  = item._kind === 'track' ? fmtMs(item.duration_ms) : '';
+    const thumbClass = item._kind === 'artist' ? 'search-result-thumbnail artist-thumb' : 'search-result-thumbnail';
+    return `
+      <div class="search-result-item" data-url="${escHtml(url)}" data-name="${name}|${meta}">
+        <div class="${thumbClass}">
+          ${img ? `<img src="${escHtml(img)}" onerror="this.parentElement.innerHTML='${defaultIcon(item._kind)}'">` : defaultIcon(item._kind)}
+        </div>
+        <div class="search-result-info">
+          <div class="search-result-title">${name}</div>
+          ${meta ? `<div class="search-result-meta">${meta}</div>` : ''}
+        </div>
+        ${dur ? `<span class="sr-duration">${dur}</span>` : ''}
+      </div>`;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  const container = $('text-search-results');
+  container.innerHTML = '';
+
+  const panel = document.createElement('div');
+  panel.className = 'sr-panel';
+
+  // Tab bar
+  const tabBar = document.createElement('div');
+  tabBar.className = 'sr-tab-bar';
+  const tabs = [
+    { id: 'all',      label: 'All' },
+    { id: 'track',    label: 'Tracks' },
+    { id: 'album',    label: 'Albums' },
+    { id: 'artist',   label: 'Artists' },
+    { id: 'playlist', label: 'Playlists' },
+  ];
+  tabs.forEach(t => {
+    const btn = document.createElement('button');
+    btn.className = 'sr-tab' + (t.id === activeTab ? ' active' : '');
+    btn.dataset.tab = t.id;
+    btn.innerHTML = `${t.label}<span class="sr-tab-badge">${counts[t.id]}</span>`;
+    btn.onclick = () => {
+      activeTab = t.id;
+      tabBar.querySelectorAll('.sr-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderList();
+    };
+    tabBar.appendChild(btn);
+  });
+  panel.appendChild(tabBar);
+
+  // Filter row
+  const filterRow = document.createElement('div');
+  filterRow.className = 'sr-filter-row';
+  const filterInp = document.createElement('input');
+  filterInp.className = 'sr-filter-input';
+  filterInp.placeholder = 'Filter results…';
+  filterInp.oninput = () => { filterVal = filterInp.value.toLowerCase(); renderList(); };
+  filterRow.appendChild(filterInp);
+  panel.appendChild(filterRow);
+
+  // Content area
+  const contentArea = document.createElement('div');
+  contentArea.className = 'sr-tab-content';
+  panel.appendChild(contentArea);
+
+  container.appendChild(panel);
+
+  function renderList() {
+    let items = activeTab === 'all' ? allItems : allItems.filter(i => i._kind === activeTab);
+    if (filterVal) {
+      items = items.filter(i => {
+        const name = (i.name || i.title || '').toLowerCase();
+        const meta = (i.artists || i.artist || i.owner || '').toLowerCase();
+        return name.includes(filterVal) || meta.includes(filterVal);
+      });
+    }
+    if (!items.length) {
+      contentArea.innerHTML = `<div class="search-result-empty">No results found.</div>`;
+      return;
+    }
+    contentArea.innerHTML = items.slice(0, 100).map(makeItemHTML).join('');
+    // Attach click → auto-switch to fetch mode + load
+    contentArea.querySelectorAll('.search-result-item').forEach(el => {
+      el.onclick = () => onSearchResultClick(el.dataset.url);
+    });
+  }
+
+  renderList();
+
+  $('text-search-container').classList.remove('hidden');
+  $('track-table-wrap').classList.add('hidden');
 };
+
+// Click on a search result: switch to link mode, populate URL, fetch
+function onSearchResultClick(url) {
+  if (!url) return;
+  // Switch to link mode if still in search mode
+  const hiddenMode = $('searchMode');
+  if (hiddenMode && hiddenMode.value === 'search') {
+    hiddenMode.value = 'link';
+    updateSearchMode();
+  }
+  $('urlInput').value = url;
+  onFetch();
+}
 
 window.app_handle_provider_search_error = function(message) {
   setFetchingState('error');
@@ -4327,7 +4628,9 @@ function setFetchingState(state) {
     else rw.classList.remove('fetching-disabled');
   }
   if (fetchBtn) fetchBtn.disabled = isFetchingData;
-  if (urlInput) urlInput.disabled = isFetchingData;
+  // In search mode, never disable the input so the user can keep typing in real-time
+  const isSearchMode = $('searchMode')?.value === 'search';
+  if (urlInput) urlInput.disabled = isFetchingData && !isSearchMode;
 
   if (!toast) return;
 
@@ -4532,6 +4835,54 @@ window.addEventListener('pywebviewready', () => {
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', syncSystemTheme);
 loadSettingsFromStorage();
 updateSearchMode();
+
+// ── Real-time search on keystroke ────────────────────────────────────────────
+let _searchDebounceTimer = null;
+let _lastSearchQuery = '';
+
+$('urlInput').addEventListener('input', function() {
+  const mode = $('searchMode').value;
+  if (mode !== 'search') return;
+
+  const query = this.value.trim();
+
+  // Clear results if query is empty
+  if (!query) {
+    _lastSearchQuery = '';
+    clearTimeout(_searchDebounceTimer);
+    const container = $('text-search-results');
+    if (container) container.innerHTML = '';
+    $('text-search-container')?.classList.add('hidden');
+    $('track-table-wrap')?.classList.remove('hidden');
+    return;
+  }
+
+  // Skip if same query
+  if (query === _lastSearchQuery) return;
+
+  clearTimeout(_searchDebounceTimer);
+  _searchDebounceTimer = setTimeout(() => {
+    _lastSearchQuery = query;
+
+    // Show a lightweight searching indicator inside the results container
+    const container = $('text-search-results');
+    if (container) {
+      container.innerHTML = `
+        <div style="padding: 24px; text-align: center; color: var(--muted); font-size: 12px;">
+          <svg style="animation: spin .8s linear infinite; display:inline-block; vertical-align:middle; margin-right:6px;" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          Searching for <strong style="color:var(--text)">${escHtml(query)}</strong>…
+        </div>`;
+    }
+    $('text-search-container')?.classList.remove('hidden');
+    $('track-table-wrap')?.classList.add('hidden');
+
+    if (window.pywebview?.api) {
+      window.pywebview.api.search_provider_async(query, 50).catch(e => {
+        logMessage('Real-time search error: ' + e, 'error');
+      });
+    }
+  }, 350); // 350ms debounce
+});
 
 setTimeout(() => {
   if (!window.pywebview) {
