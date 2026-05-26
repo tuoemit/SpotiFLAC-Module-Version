@@ -656,6 +656,7 @@ class SpotifyMetadataClient:
                 entry: dict[str, Any] = {
                     "id": node_id,
                     "type": kind,
+                    "subtitle": kind.capitalize(),
                     "name": node.get("name") or node.get("profile", {}).get("name", "Unknown"),
                     "external_url": f"https://open.spotify.com/{kind}/{node_id}",
                 }
