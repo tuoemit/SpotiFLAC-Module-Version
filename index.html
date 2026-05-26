@@ -1452,6 +1452,87 @@
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+
+/* ── ARTIST VIEW: sezioni Albums + Tracks ── */
+.artist-section-hdr {
+  max-width: min(100%, 950px); margin: 16px auto 8px;
+  padding: 0 14px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.artist-section-hdr-title {
+  font-size: 11px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--muted);
+}
+.artist-section-hdr-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--muted);
+}
+.artist-albums-grid {
+  max-width: min(100%, 950px); margin: 0 auto 4px;
+  padding: 0 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+.artist-album-card {
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 10px; overflow: hidden; cursor: pointer;
+  transition: border-color var(--t), transform .15s, box-shadow .15s;
+}
+.artist-album-card:hover {
+  border-color: var(--yellow); transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0,0,0,.1);
+}
+.aac-cover {
+  width: 100%; aspect-ratio: 1; background: var(--surface2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; overflow: hidden;
+}
+.aac-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.aac-body { padding: 8px 10px 10px; }
+.aac-name {
+  font-size: 11.5px; font-weight: 700; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;
+}
+.aac-meta { font-size: 10px; color: var(--muted); }
+/* ── ARTIST TABS ── */
+.artist-tabs-bar {
+  max-width: min(100%, 950px); margin: 14px auto 0;
+  padding: 0 14px;
+  display: flex; gap: 2px;
+  border-bottom: 2px solid var(--border);
+}
+.artist-tab {
+  padding: 8px 18px;
+  font-size: 12.5px; font-weight: 700;
+  color: var(--muted); background: none; border: none;
+  border-bottom: 2px solid transparent; margin-bottom: -2px;
+  cursor: pointer; font-family: var(--app-font);
+  transition: color var(--t), border-color var(--t);
+  white-space: nowrap;
+}
+.artist-tab:hover { color: var(--text2); }
+.artist-tab.active { color: var(--text); border-bottom-color: var(--yellow); }
+
+/* Gallery */
+.artist-gallery-grid {
+  max-width: min(100%, 950px); margin: 12px auto;
+  padding: 0 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+.artist-gallery-img {
+  width: 100%; aspect-ratio: 1; object-fit: cover;
+  border-radius: 10px; border: 1.5px solid var(--border);
+  cursor: pointer; transition: transform .15s, border-color var(--t);
+  display: block;
+}
+.artist-gallery-img:hover { transform: scale(1.02); border-color: var(--yellow); }
+.artist-gallery-empty {
+  grid-column: 1 / -1; color: var(--muted);
+  font-size: 13px; padding: 32px 0; text-align: center;
+}
   </style>
 </head>
 <body>
@@ -2890,6 +2971,7 @@ function closeAlbumCard() {
   metaSection.style.display = 'none';
 }
   $('album-cover').querySelector('.cover-duration')?.remove();
+  document.getElementById('artist-tabs-section')?.remove();
   loadHistoryAndProfiles();
 }
 
@@ -2908,6 +2990,128 @@ function formatDuration(ms) {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60); const sec = s % 60;
   return `${m}:${sec.toString().padStart(2, '0')}`;
+}
+
+function injectArtistTabs(tracks) {
+  document.getElementById('artist-tabs-section')?.remove();
+
+  // Raggruppa per album
+  const albumMap = new Map();
+  tracks.forEach((t, idx) => {
+    const key = t.album || t.album_name || t.release || '—';
+    if (!albumMap.has(key)) {
+      albumMap.set(key, {
+        name: key,
+        cover: t.cover_url || t.cover || t.image || '',
+        year: t.release_date ? String(t.release_date).split('T')[0].substring(0, 4) : (t.year || ''),
+        indices: []
+      });
+    }
+    albumMap.get(key).indices.push(idx);
+  });
+
+  const section = document.createElement('div');
+  section.id = 'artist-tabs-section';
+
+  // ── Tab bar ──
+  const tabBar = document.createElement('div');
+  tabBar.className = 'artist-tabs-bar';
+  [
+    { id: 'albums',  label: `Albums · ${albumMap.size}` },
+    { id: 'tracks',  label: `All Tracks · ${tracks.length}` },
+    { id: 'gallery', label: 'Gallery' },
+  ].forEach((tab, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'artist-tab' + (i === 1 ? ' active' : '');
+    btn.id = `artist-tab-${tab.id}-btn`;
+    btn.textContent = tab.label;
+    btn.onclick = () => switchArtistTab(tab.id);
+    tabBar.appendChild(btn);
+  });
+  section.appendChild(tabBar);
+
+  // ── Pannello Albums ──
+  const albumsPanel = document.createElement('div');
+  albumsPanel.id = 'artist-panel-albums';
+  albumsPanel.className = 'artist-albums-grid';
+  albumsPanel.style.display = 'none';
+  albumMap.forEach(album => {
+    const card = document.createElement('div');
+    card.className = 'artist-album-card';
+    const coverHtml = album.cover
+      ? `<img src="${escHtml(album.cover)}" alt="cover" loading="lazy" onerror="this.parentElement.innerHTML='🎵'">`
+      : '🎵';
+    card.innerHTML = `
+      <div class="aac-cover">${coverHtml}</div>
+      <div class="aac-body">
+        <div class="aac-name" title="${escHtml(album.name)}">${escHtml(album.name)}</div>
+        <div class="aac-meta">${album.year ? album.year + ' · ' : ''}${album.indices.length} track${album.indices.length !== 1 ? 's' : ''}</div>
+      </div>`;
+    card.onclick = () => { addToQueue(album.indices); startDownloadQueue(); $('queue-drawer').classList.add('open'); };
+    albumsPanel.appendChild(card);
+  });
+  section.appendChild(albumsPanel);
+
+  // ── Pannello Gallery ──
+  const galleryPanel = document.createElement('div');
+  galleryPanel.id = 'artist-panel-gallery';
+  galleryPanel.className = 'artist-gallery-grid';
+  galleryPanel.style.display = 'none';
+  galleryPanel.innerHTML = `<div class="artist-gallery-empty">⏳ Loading gallery…</div>`;
+  section.appendChild(galleryPanel);
+
+  // Inserisci prima di track-controls
+  const listContainer = document.querySelector('.list-container');
+  listContainer.insertBefore(section, $('track-controls'));
+
+  // Carica gallery in background
+  loadArtistGallery(galleryPanel);
+}
+
+async function loadArtistGallery(panel) {
+  try {
+    // Prova API Python se disponibile
+    if (window.pywebview?.api?.get_artist_images) {
+      const images = await window.pywebview.api.get_artist_images(currentUrl);
+      if (images?.length) {
+        panel.innerHTML = images.map(url =>
+          `<img class="artist-gallery-img" src="${escHtml(url)}" alt="Artist photo" loading="lazy" onerror="this.remove()">`
+        ).join('');
+        return;
+      }
+    }
+  } catch(e) {}
+
+  // Fallback: cover degli album come gallery
+  const covers = [...new Set(currentTracks.map(t => t.cover_url || t.cover || t.image).filter(Boolean))];
+  if (covers.length) {
+    panel.innerHTML = covers.map(url =>
+      `<img class="artist-gallery-img" src="${escHtml(url)}" alt="Cover" loading="lazy" onerror="this.remove()">`
+    ).join('');
+  } else {
+    panel.innerHTML = `<div class="artist-gallery-empty">🖼 No gallery images available.</div>`;
+  }
+}
+
+function switchArtistTab(tabName) {
+  document.querySelectorAll('.artist-tab').forEach(b => b.classList.remove('active'));
+  $(`artist-tab-${tabName}-btn`)?.classList.add('active');
+
+  const albumsPanel   = $('artist-panel-albums');
+  const galleryPanel  = $('artist-panel-gallery');
+  const trackControls = $('track-controls');
+  const trackTable    = $('track-table-wrap');
+
+  if (albumsPanel)  albumsPanel.style.display  = tabName === 'albums'  ? 'grid' : 'none';
+  if (galleryPanel) galleryPanel.style.display  = tabName === 'gallery' ? 'grid' : 'none';
+
+  if (tabName === 'tracks') {
+    trackControls?.classList.remove('hidden');
+    trackTable?.classList.remove('hidden');
+  } else {
+    trackControls?.classList.add('hidden');
+    trackTable?.classList.add('hidden');
+  }
 }
 
 // ── Track rendering ───────────────────────────────────────────────────────────
@@ -3027,7 +3231,11 @@ function renderTracks(tracks, page = 1) {
     } else {
       setTrackRenderStatus('', false);
       updateAlbumMeta(tracks.length);
+      // Se è una pagina artista, inietta la sezione album sopra le tracce
       const urlLower = (currentUrl || '').toLowerCase();
+      const isArtist = urlLower.includes('/artist/') || urlLower.includes('spotify:artist:') || urlLower.includes('/browse/artist');
+      document.getElementById('artist-albums-section')?.remove();
+      if (isArtist) injectArtistTabs(tracks);
       const isTrackUrl = urlLower.includes('/track/') || urlLower.includes('spotify:track:') || urlLower.includes('watch?v=') || urlLower.includes('youtu.be/');
       if (isTrackUrl && tracks.length === 1) {
         $('track-controls').classList.add('hidden');
