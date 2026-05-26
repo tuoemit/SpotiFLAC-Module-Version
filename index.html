@@ -365,6 +365,19 @@
       font-size: 42px; overflow: hidden; position: relative;
     }
     #album-cover img { width: 100%; height: 100%; object-fit: cover; border-radius: 18px; }
+    #album-cover:hover .cover-download-btn { opacity: 1; }
+    .cover-download-btn {
+      position: absolute; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+      background: rgba(0, 0, 0, 0.5); border-radius: 12px; opacity: 0; transition: all 0.2s ease;
+      border: none; cursor: pointer; color: white; font-family: inherit; backdrop-filter: blur(4px);
+    }
+    .cover-download-btn:hover { background: rgba(0, 0, 0, 0.7); transform: scale(1.1); }
+    .cover-download-btn svg { width: 24px; height: 24px; }
+    .cover-download-btn.loading svg { animation: spin 0.8s linear infinite; }
+    .cover-download-btn.success { background: rgba(34, 197, 94, 0.7); opacity: 1; }
+    .cover-download-btn.error { background: rgba(239, 68, 68, 0.7); opacity: 1; }
+    .cover-download-btn.success:hover, .cover-download-btn.error:hover { cursor: default; transform: none; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     #album-info { flex: 1; min-width: 0; }
     #album-type-badge {
       margin-bottom: 10px;
@@ -2562,6 +2575,7 @@ renderStatusGrids();
 let currentTracks  = [];
 let trackRenderToken = 0;
 let currentUrl     = '';
+let currentItemType = 'ALBUM'; // ALBUM, TRACK, ARTIST, PLAYLIST
 let queue          = [];
 let queueStats     = { downloaded:'0.00 MB', speed:'0.00 MB/s' };
 let isDownloading  = false;
@@ -2848,8 +2862,15 @@ function setAlbumCard(title, artist, coverUrl, quality, description, followers, 
   }
 
   const coverEl = $('album-cover');
-  if (coverUrl) coverEl.innerHTML = `<img src="${coverUrl}" alt="cover" onerror="this.parentElement.innerHTML='🎵'">`;
-  else          coverEl.innerHTML = '🎵';
+  if (coverUrl) {
+    const displayArtist = artist || title || 'Unknown';
+    coverEl.innerHTML = `<img src="${coverUrl}" alt="cover" onerror="this.parentElement.innerHTML='🎵'">
+    <button id="cover-download-btn" class="cover-download-btn" onclick="downloadAlbumCover(this, '${coverUrl}', '${escHtml(title || 'album')}', '${escHtml(displayArtist)}', '${escHtml(owner || '')}')" title="Download cover" style="left: 50%; top: 50%; transform: translate(-50%, -50%);">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    </button>`;
+  } else {
+    coverEl.innerHTML = '🎵';
+  }
   $('album-card').classList.remove('hidden');
 }
 function updateAlbumMeta(trackCount) {
@@ -2867,7 +2888,14 @@ function updateAlbumMeta(trackCount) {
     badgeType = 'ARTIST';
   }
 
+  currentItemType = badgeType;
   $('album-type-badge').textContent = badgeType;
+
+  // Hide "Save all covers" button for albums since they only have one cover
+  const saveAllCoversBtn = $('save-all-covers-btn');
+  if (saveAllCoversBtn) {
+    saveAllCoversBtn.style.display = badgeType === 'ALBUM' ? 'none' : '';
+  }
 
   if (badgeType === 'ARTIST') {
     const albumSet = new Set(
@@ -3404,6 +3432,59 @@ function downloadLyrics(i) {
   } else {
     logMessage('Python not connected — demo mode', 'warn');
     setTimeout(() => { btns.forEach(btn => { setTaBtnState(btn, 'success'); resetTaBtnAfter(btn, 2200); }); }, 700);
+  }
+}
+
+function downloadAlbumCover(btn, imageUrl, title = 'album', artist = 'Unknown', owner = '') {
+  const itemType = currentItemType || 'ALBUM';
+  const displayName = itemType === 'PLAYLIST' ? owner || title : artist;
+  
+  // Set loading state
+  btn.classList.add('loading');
+  btn.disabled = true;
+  btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+  
+  if (window.pywebview?.api) {
+    logMessage(`Downloading cover for: ${displayName}…`, 'info');
+    try {
+      window.pywebview.api.download_cover({
+        "title": title,
+        "artist": artist,
+        "owner": owner,
+        "cover": imageUrl,
+        "type": itemType
+      });
+      
+      // Simulate completion after 2.5 seconds
+      setTimeout(() => {
+        btn.classList.remove('loading');
+        btn.classList.add('success');
+        btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+        
+        // Reset after 2 seconds
+        setTimeout(() => {
+          btn.classList.remove('success');
+          btn.disabled = false;
+          btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+        }, 2000);
+      }, 2500);
+    } catch (e) {
+      btn.classList.remove('loading');
+      btn.classList.add('error');
+      btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+      logMessage('Error downloading cover: ' + e, 'error');
+      
+      // Reset after 3 seconds
+      setTimeout(() => {
+        btn.classList.remove('error');
+        btn.disabled = false;
+        btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+      }, 3000);
+    }
+  } else {
+    logMessage('Download feature not available in demo mode', 'warn');
+    btn.classList.remove('loading');
+    btn.disabled = false;
   }
 }
 

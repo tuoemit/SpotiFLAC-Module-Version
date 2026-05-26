@@ -404,6 +404,100 @@ class SpotiFLAC_API:
         except Exception as e:
             self.log(f"Cover download error: {e}", "error")
 
+    def download_cover(self, cover_data):
+        """Download and save cover with appropriate folder structure based on type."""
+        threading.Thread(
+            target=self._download_cover_task_typed,
+            args=(cover_data,),
+            daemon=True,
+        ).start()
+
+    def _download_cover_task_typed(self, cover_data):
+        try:
+            title     = cover_data.get("title", "Unknown")
+            artist    = cover_data.get("artist", "")
+            owner     = cover_data.get("owner", "")
+            cover_url = cover_data.get("cover", "")
+            item_type = cover_data.get("type", "ALBUM").upper()
+
+            if not cover_url:
+                self.log(f"No cover URL available for: {title}", "error")
+                return
+
+            import re
+            safe_title  = re.sub(r'[\\/*?:"<>|]', "", title).strip()
+            safe_artist = re.sub(r'[\\/*?:"<>|]', "", artist).strip()
+            safe_owner  = re.sub(r'[\\/*?:"<>|]', "", owner).strip()
+
+            resp = req_lib.get(cover_url, timeout=15)
+            resp.raise_for_status()
+
+            # Determine folder structure based on type
+            if item_type == 'PLAYLIST':
+                # Playlist/cover.jpg
+                folder_path = os.path.join(self.download_dir, safe_title)
+                folder_display = safe_title
+            elif item_type == 'ARTIST':
+                # Artist/cover.jpg
+                folder_path = os.path.join(self.download_dir, safe_artist)
+                folder_display = safe_artist
+            else:  # ALBUM or TRACK
+                # Artist/Album/cover.jpg
+                folder_path = os.path.join(self.download_dir, safe_artist, safe_title)
+                folder_display = f"{safe_artist}/{safe_title}"
+
+            os.makedirs(folder_path, exist_ok=True)
+            out_path = os.path.join(folder_path, "cover.jpg")
+
+            with open(out_path, "wb") as f:
+                f.write(resp.content)
+
+            self.log(f"Cover saved: {folder_display}/cover.jpg", "ok")
+
+        except Exception as e:
+            self.log(f"Cover download error: {e}", "error")
+
+    def download_album_cover(self, album_data):
+        """Download and save album cover with Artist/Album folder structure."""
+        threading.Thread(
+            target=self._download_album_cover_task,
+            args=(album_data,),
+            daemon=True,
+        ).start()
+
+    def _download_album_cover_task(self, album_data):
+        try:
+            title     = album_data.get("title", "Unknown")
+            artist    = album_data.get("artist", "Unknown Artist")
+            cover_url = album_data.get("cover", "")
+
+            if not cover_url:
+                self.log(f"No cover URL available for: {title}", "error")
+                return
+
+            self.log(f"Downloading album cover: {artist} - {title}…", "info")
+
+            resp = req_lib.get(cover_url, timeout=15)
+            resp.raise_for_status()
+
+            import re
+            safe_artist = re.sub(r'[\\/*?:"<>|]', "", artist).strip()
+            safe_album  = re.sub(r'[\\/*?:"<>|]', "", title).strip()
+            
+            # Create folder structure: Artist/Album/
+            folder_path = os.path.join(self.download_dir, safe_artist, safe_album)
+            os.makedirs(folder_path, exist_ok=True)
+            
+            out_path = os.path.join(folder_path, "cover.jpg")
+
+            with open(out_path, "wb") as f:
+                f.write(resp.content)
+
+            self.log(f"Album cover saved: {safe_artist}/{safe_album}/cover.jpg", "ok")
+
+        except Exception as e:
+            self.log(f"Album cover download error: {e}", "error")
+
     # ── Bulk: cover di tutte le tracce ───────────────────────────────────────────
 
     def download_all_covers(self, tracks_data):
