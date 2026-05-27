@@ -1,2 +1,2 @@
 include index.html
-recursive-include assets *
+recursive-include assets *.*
