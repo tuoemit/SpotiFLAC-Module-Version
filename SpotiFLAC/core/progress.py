@@ -312,7 +312,7 @@ class ProgressManager:
             cls.clear_master_bar()
 
     @classmethod
-    def initialize_master_bar(cls, total_items: int, description: str = "Batch", at_top: bool = True) -> None:
+    def initialize_master_bar(cls, total_items: int, description: str = "Progress", at_top: bool = True) -> None:
         if not at_top:
             raise ValueError("Only top-aligned master bar is supported by ProgressManager at this time.")
 

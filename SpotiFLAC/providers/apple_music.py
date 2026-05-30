@@ -279,7 +279,7 @@ class AppleMusicProvider(BaseProvider):
             )
 
             if self._file_exists(dest):
-                return DownloadResult.skipped(self.name, str(dest), fmt="m4a")
+                return DownloadResult.skipped_result(self.name, str(dest), fmt="m4a")
 
             # Risoluzione URL
             track_url = None

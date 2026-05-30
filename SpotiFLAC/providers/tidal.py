@@ -1000,7 +1000,7 @@ class TidalProvider(BaseProvider):
                 position, include_track_num, use_album_track_num, first_artist_only,
             )
             if self._file_exists(dest):
-                return DownloadResult.skipped(self.name, str(dest))
+                return DownloadResult.skipped_result(self.name, str(dest))
 
             dl_url = (
                 self._get_download_url_with_fallback(track_id, quality)

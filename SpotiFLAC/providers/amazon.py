@@ -689,7 +689,7 @@ class AmazonProvider(BaseProvider):
                 position, include_track_num, use_album_track_num, first_artist_only,
             )
             if self._file_exists(dest):
-                return DownloadResult.skipped(self.name, str(dest))
+                return DownloadResult.skipped_result(self.name, str(dest))
 
             from ..core.musicbrainz import AsyncMBFetch
             mb_fetcher = AsyncMBFetch(metadata.isrc) if getattr(metadata, "isrc", None) else None
