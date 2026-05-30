@@ -7,3 +7,4 @@ temp/
 /.idea
 /SpotiFLAC.egg-info
 /backend/SpotiFLAC.egg-info
+/dist

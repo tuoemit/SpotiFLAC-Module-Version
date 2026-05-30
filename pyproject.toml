@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "SpotiFLAC"
-version = "0.7.3"
+version = "0.7.4"
 description = "Get Spotify tracks in true FLAC from Tidal, Qobuz & Amazon Music — no account required."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -55,11 +55,13 @@ dependencies = [
 spotiflac = "launcher:main"
 
 [tool.setuptools]
-py-modules = ["launcher", "app"]
+packages = { find = { where = ["backend"], include = ["SpotiFLAC*"] } }
 include-package-data = true
 
 [tool.setuptools.package-dir]
 "" = "backend"
 
-[tool.setuptools.packages.find]
-include = ["SpotiFLAC*"]
+# Use setuptools.find to locate the `SpotiFLAC` package inside `backend/`.
+# Previously `py-modules` was set which caused only top-level modules
+# (`launcher`, `app`) to be included in the wheel; switching to `packages`
+# ensures the package directory is packaged into the wheel.
