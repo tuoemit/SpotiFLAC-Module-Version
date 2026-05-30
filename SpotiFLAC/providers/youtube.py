@@ -9,7 +9,8 @@ import time
 from typing import Callable, List, Optional, Tuple, Dict, Any
 from urllib.parse import quote, urlparse, parse_qs
 
-import requests
+import httpx
+from ..core.http import NetworkManager
 from mutagen.id3 import (
     ID3, ID3NoHeaderError,
     TIT2, TPE1, TALB, TPE2, TDRC, TRCK, TPOS, APIC, TPUB, WXXX, COMM,
@@ -49,7 +50,7 @@ class YouTubeProvider(BaseProvider):
 
     def __init__(self, timeout_s: int = 120) -> None:
         super().__init__(timeout_s=timeout_s)
-        self._session = requests.Session()
+        self._session = NetworkManager.get_sync_client()
         self._session.headers.update({"User-Agent": _DEFAULT_UA})
         # Cache per evitare richieste multiple a Odesli/Deezer per la stessa traccia
         self._enrichment_cache: Dict[str, Dict] = {}
@@ -199,7 +200,7 @@ class YouTubeProvider(BaseProvider):
         url = f"https://music.youtube.com/youtubei/v1/browse?alt=json&ctoken={quote(token)}&continuation={quote(token)}"
         try:
             resp = self._session.post(url, json={"context": {"client": {"clientName": "WEB_REMIX", "clientVersion": INNERTUBE_CLIENT_VERSION}}}, timeout=10)
-            return resp.json() if resp.ok else None
+            return resp.json() if resp.is_success else None
         except: return None
 
     def _find_key_recursive(self, data: Any, key: str) -> List[Any]:
