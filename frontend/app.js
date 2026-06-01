@@ -196,15 +196,18 @@ function applyListState(id, values = []) {
   }
 }
 
-function loadSettingsFromStorage() {
+async function loadSettingsFromStorage() {
   try {
-    const stored = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || 'null');
-    if (!stored) {
-      loadThemeFromStorage();
-      return;
+    let stored = null;
+    if (window.pywebview?.api) {
+      stored = await window.pywebview.api.load_settings();
     }
-    applySettings(stored);
-  } catch (e) {
+    if (!stored || !Object.keys(stored).length) {
+      stored = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || 'null');
+    }
+    if (stored) applySettings(stored);
+    else loadThemeFromStorage();
+  } catch(e) {
     loadThemeFromStorage();
   }
 }
@@ -231,20 +234,20 @@ function showToast(message) {
   }, 3200);
 }
 
-function saveSettings() {
+async function saveSettings() {
   try {
     const cfg = buildConfig();
     cfg.theme = $('config-theme')?.value || DEFAULT_SETTINGS.theme;
-    cfg.font = $('config-font')?.value || DEFAULT_SETTINGS.font;
+    cfg.font  = $('config-font')?.value  || DEFAULT_SETTINGS.font;
+    if (window.pywebview?.api) {
+      await window.pywebview.api.save_settings(cfg);
+    }
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(cfg));
-    localStorage.setItem('spotiflac-theme-mode', cfg.theme);
     isDirty = false;
     initialSettings = cfg;
     updateSaveButtonVisual();
-    logMessage('Settings saved locally.', 'ok');
     showToast('Settings saved.');
-  } catch (e) {
-    logMessage('Unable to save settings.', 'error');
+  } catch(e) {
     showToast('Unable to save settings.');
   }
 }
@@ -2811,20 +2814,21 @@ function pyWin(method, arg) {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
-window.addEventListener('pywebviewready', () => {
+window.addEventListener('pywebviewready', async () => {
   logMessage('Python backend connected.', 'ok');
   loadHistoryAndProfiles();
+  
+  await loadSettingsFromStorage();
+  initSettingsTracking();
+  updateSearchMode();
 });
 
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', syncSystemTheme);
-loadSettingsFromStorage();
-initSettingsTracking();
-updateSearchMode();
 
 window.addEventListener('beforeunload', function (e) {
     if (isDirty) {
         e.preventDefault();
-        e.returnValue = ''; // Standard per attivare l'alert del browser
+        e.returnValue = '';
     }
 });
 

@@ -28,11 +28,18 @@ class NetworkManager:
     _sync_client: httpx.Client | None = None
     _async_client: httpx.AsyncClient | None = None
 
+    _client_lock = threading.Lock()
+
     @classmethod
     def get_sync_client(cls) -> httpx.Client:
         if cls._sync_client is None:
-            limits = httpx.Limits(max_keepalive_connections=30, max_connections=100)
-            cls._sync_client = httpx.Client(limits=limits, timeout=30.0)
+            with cls._client_lock:
+                if cls._sync_client is None:          # double-checked locking
+                    limits = httpx.Limits(
+                        max_keepalive_connections=30,
+                        max_connections=100,
+                    )
+                    cls._sync_client = httpx.Client(limits=limits, timeout=30.0)
         return cls._sync_client
 
     @classmethod

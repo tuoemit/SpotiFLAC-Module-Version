@@ -341,15 +341,25 @@ def _parse_retry_after(resp: httpx.Response) -> float | None:
         return None
 
 
+_gdstudio_ts9_cache: dict[str, tuple[str, float]] = {}
+_gdstudio_ts9_lock  = threading.Lock()
+
 def _get_gdstudio_ts9(host: str) -> str:
-    """Retrieves the 9-digit timestamp from the GDStudio server."""
+    now = time.time()
+    with _gdstudio_ts9_lock:
+        cached = _gdstudio_ts9_cache.get(host)
+        if cached and (now - cached[1]) < 5.0:
+            return cached[0]
     try:
-        client = NetworkManager.get_sync_client() 
+        client = NetworkManager.get_sync_client()
         r = client.get(f"https://{host}/time", timeout=5)
         if r.status_code == 200:
             ts = r.text.strip()
             if len(ts) >= 9:
-                return ts[:9]
+                result = ts[:9]
+                with _gdstudio_ts9_lock:
+                    _gdstudio_ts9_cache[host] = (result, now)
+                return result
     except Exception:
         pass
     return str(int(time.time() * 1000))[:9]

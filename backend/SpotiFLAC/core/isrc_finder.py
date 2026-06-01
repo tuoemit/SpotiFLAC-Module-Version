@@ -1,40 +1,48 @@
-import logging
-from typing import Optional
-from .http import HttpClient
-
-logger = logging.getLogger(__name__)
-
-BASE62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-def spotify_id_to_gid(spotify_id: str) -> str:
-    """Converte un ID Spotify Base62 in un GID esadecimale da 32 caratteri."""
-    res = 0
-    for char in spotify_id:
-        if char not in BASE62:
-            raise ValueError(f"ID non-Spotify ignorato: carattere '{char}' non valido in Base62.")
-        res = res * 62 + BASE62.index(char)
-    return f"{res:032x}"
+# backend/SpotiFLAC/core/isrc_finder.py
 
 class IsrcFinder:
-    """Ricerca ISRC tramite i mirror GID di Spotify."""
-
-    def __init__(self, http_client: HttpClient):
+    def __init__(self, http_client):
         self.http = http_client
+        self._spotify_client = None
+
+    def _get_spotify_client(self):
+        if self._spotify_client is None:
+            try:
+                from .spotfetch import SpotifyWebClient
+                self._spotify_client = SpotifyWebClient()
+                self._spotify_client.initialize()
+            except Exception as e:
+                logger.debug("[isrc_finder] Could not init SpotifyWebClient: %s", e)
+        return self._spotify_client
 
     def find_isrc(self, track_id: str) -> Optional[str]:
         try:
             gid = spotify_id_to_gid(track_id)
         except ValueError as e:
             logger.debug("[isrc_finder] %s", e)
-            return None # Ignora in modo sicuro ID come 'apple_1588744445' o 'tidal_123'
+            return None
 
-        # Esempio di endpoint mirror (basato sulla logica Go)
+        client = self._get_spotify_client()
+        if not client or not client.access_token:
+            return None
+
         url = f"https://spclient.wg.spotify.com/metadata/4/track/{gid}"
         try:
-            # Nota: richiede headers specifici o token anonimo
-            data = self.http.get_json(url)
-            ids = data.get("external_id") or [{}]
-            return ids[0].get("value")
+            from .http import NetworkManager
+            resp = NetworkManager.get_sync_client().get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {client.access_token}",
+                    "Client-Token":   client.client_token,
+                },
+                timeout=8,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                ids = data.get("external_id") or [{}]
+                return ids[0].get("value")
+            elif resp.status_code == 401:
+                self._spotify_client = None
         except Exception as e:
             logger.debug("[isrc_finder] Mirror lookup failed: %s", e)
-            return None
+        return None

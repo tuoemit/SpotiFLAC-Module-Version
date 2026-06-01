@@ -143,6 +143,27 @@ class SpotiFLAC_API:
 
     # ── Profile & History API ─────────────────────────────────────────────────
 
+    def save_settings(self, cfg: dict):
+        try:
+            import json
+            from pathlib import Path
+            settings_file = Path.home() / ".cache" / "spotiflac" / "gui-settings.json"
+            settings_file.parent.mkdir(parents=True, exist_ok=True)
+            settings_file.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        except Exception as e:
+            self.log(f"Failed to save settings: {e}", "error")
+
+    def load_settings(self) -> dict:
+        try:
+            import json
+            from pathlib import Path
+            settings_file = Path.home() / ".cache" / "spotiflac" / "gui-settings.json"
+            if settings_file.exists():
+                return json.loads(settings_file.read_text(encoding="utf-8"))
+        except Exception as e:
+            self.log(f"Failed to load settings: {e}", "error")
+        return {}
+
     def get_history(self):
         try:
             from SpotiFLAC.core.session_memory import get_url_history
@@ -411,13 +432,26 @@ class SpotiFLAC_API:
             self._window.minimize()
 
     def WindowToggleMaximise(self):
-        if self._window:
-            if getattr(self, '_is_maximized', False):
-                self._window.restore()
-                self._is_maximized = False
+        if not self._window:
+            return
+        if getattr(self, '_is_maximized', False):
+            self._window.restore()
+            self._is_maximized = False
+        else:
+            if sys.platform == 'win32':
+                try:
+                    import ctypes
+                    work_area = ctypes.wintypes.RECT()
+                    ctypes.windll.user32.SystemParametersInfoW(48, 0, ctypes.byref(work_area), 0)
+                    # SPI_GETWORKAREA = 48
+                    self._window.resize(work_area.right - work_area.left,
+                                        work_area.bottom - work_area.top)
+                    self._window.move(work_area.left, work_area.top)
+                except Exception:
+                    self._window.maximize()
             else:
                 self._window.maximize()
-                self._is_maximized = True
+            self._is_maximized = True
 
     def Quit(self):
         if self._window:
