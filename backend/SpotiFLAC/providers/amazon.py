@@ -78,7 +78,7 @@ def _get_amazon_debug_key() -> str:
         _AMAZON_DEBUG_KEY_CIPHERTEXT_TAG,
         _AMAZON_DEBUG_KEY_AAD,
     )
-    _amazon_debug_key = plaintext.decode()
+    _amazon_debug_key = plaintext.decode().strip()
     return _amazon_debug_key
 
 def _sanitize(value: str) -> str:

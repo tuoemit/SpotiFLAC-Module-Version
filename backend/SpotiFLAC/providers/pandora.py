@@ -42,7 +42,7 @@ _DEEZER_API_URL  = "https://api.deezer.com"
 _PANDORA_BASE    = "https://www.pandora.com"
 _USER_COUNTRY    = "US"
 
-_MOBILE_UA = "SpotiFLAC-Mobile/1.0  "
+_MOBILE_UA = "SpotiFLAC-Mobile/1.0"
 _DEFAULT_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
