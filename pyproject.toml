@@ -8,7 +8,7 @@ version = "0.8.9"
 description = "Get Spotify tracks in true FLAC from Tidal, Qobuz & Amazon Music — no account required."
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     { name="ShuKurenais, BartolomeoRusso9" }
 ]
@@ -91,8 +91,6 @@ include-package-data = true
     "frontend/assets/icons/youtube.svg",
 ]
 
-[tool.setuptools.package-dir]
-"" = "backend"
 
 # Use setuptools.find to locate the `SpotiFLAC` package inside `backend/`.
 # Previously `py-modules` was set which caused only top-level modules
