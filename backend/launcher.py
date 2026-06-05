@@ -245,17 +245,7 @@ def main() -> None:
         return
 
     if len(sys.argv) == 1:
-        search_dirs = [
-            os.path.dirname(os.path.abspath(__file__)),
-            os.getcwd(),
-        ]
-        try:
-            import app as _app_module
-            search_dirs.insert(0, os.path.dirname(_app_module.__file__))
-        except ImportError:
-            pass
-
-        from app import run_gui
+        from .app import run_gui
         run_gui()
         return
 
