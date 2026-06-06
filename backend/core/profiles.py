@@ -15,7 +15,7 @@ from pathlib import Path
 import threading
 import logging
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 logger = logging.getLogger(__name__)
 _io_lock = threading.Lock()
@@ -51,6 +51,34 @@ class ProfileConfig(BaseModel):
     output_path: str | None = None
 
     model_config = {"extra": "ignore"}
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def parse_log_level(cls, value: int | str | None) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().upper()
+            if not normalized:
+                return None
+            if normalized.isdigit():
+                return int(normalized)
+            standard_level = logging.getLevelName(normalized)
+            if isinstance(standard_level, int):
+                return standard_level
+            aliases = {
+                "WARN": "WARNING",
+                "ERR": "ERROR",
+                "CRIT": "CRITICAL",
+                "FATAL": "CRITICAL",
+            }
+            mapped = aliases.get(normalized)
+            if mapped:
+                return logging.getLevelName(mapped)
+            raise ValueError(f"Invalid log level: {value}")
+        raise TypeError("log_level must be an integer or a named log level string")
 
 
 def _load() -> dict:
