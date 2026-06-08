@@ -69,6 +69,7 @@ class SpotiFLAC_API:
     def _on_loaded(self):
         self.log("Python Backend connected.", "info")
         self.log(f"Default download folder: {self.download_dir}", "info")
+        self._check_ffmpeg_startup()
         self.run_health_check(["tidal", "qobuz", "deezer", "apple", "soundcloud", "spoti"])
         app_version = self.app_version
         try:
@@ -82,6 +83,35 @@ class SpotiFLAC_API:
     # Expose simple getters to the frontend via pywebview
     def get_version(self):
         return self.app_version
+
+    def _check_ffmpeg_startup(self) -> None:
+        try:
+            from .core.ffmpeg_check import check_ffmpeg
+            result = check_ffmpeg()
+            if result["available"]:
+                short = result["version"][:80]
+                self.log(f"ffmpeg: {short}", "ok")
+            else:
+                self.log(
+                    f"⚠  ffmpeg not found — Tidal FLAC muxing and Amazon "
+                    f"decryption will fail. Install: https://ffmpeg.org/download.html",
+                    "error",
+                )
+                try:
+                    if self._window:
+                        import json
+                        self._window.evaluate_js(
+                            f"window.showFfmpegWarning({json.dumps(result)});"
+                        )
+                except Exception:
+                    pass
+        except Exception as exc:
+            self.log(f"ffmpeg check error: {exc}", "warn")
+
+    # ── Metodo pubblico opzionale (il JS può interrogarlo anche dopo) ─────────────
+    def get_ffmpeg_status(self) -> dict:
+        from .core.ffmpeg_check import check_ffmpeg
+        return check_ffmpeg()
 
     # ── UI communication ──────────────────────────────────────────────────────
 
@@ -1374,7 +1404,7 @@ def run_gui():
 
     # 2) frontend inside the backend package (if present)
     try:
-        import backend as _sp_pkg
+        import SpotiFLAC as _sp_pkg
         pkg_frontend = os.path.join(os.path.dirname(_sp_pkg.__file__), 'frontend', 'index.html')
         candidates.append(pkg_frontend)
     except Exception:
