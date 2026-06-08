@@ -616,10 +616,11 @@ After each download, SpotiFLAC validates the file to detect common issues:
 ### Want to support the project?
 
 _If this software is useful and brings you value,
-consider supporting the project by buying me a coffee.
+consider supporting the project by buying us a coffee.
 Your support helps keep development going._
 
 [![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/shukurenais)
+[![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/bartolomeorusso9)
 
 ## API Credits
 
