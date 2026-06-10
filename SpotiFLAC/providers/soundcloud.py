@@ -36,7 +36,7 @@ class SoundCloudProvider(BaseProvider):
     _REGEX_OG_URL = re.compile(r'<meta[^>]*property=["\']og:url["\'][^>]*content=["\']([^"\']+)["\']', re.IGNORECASE)
     _REGEX_CANONICAL_URL = re.compile(r'<link[^>]*rel=["\']canonical["\'][^>]*href=["\']([^"\']+)["\']', re.IGNORECASE)
 
-    def __init__(self, timeout_s: int = 30):
+    def __init__(self, timeout_s: int = 120):
         super().__init__(timeout_s=timeout_s)
         self.provider_id = "soundcloud"
         self.api_url     = "https://api-v2.soundcloud.com"

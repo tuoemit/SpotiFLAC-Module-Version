@@ -9,6 +9,7 @@ import os
 import re
 import json
 import httpx
+import threading
 import subprocess
 import time
 from typing import Callable
@@ -126,6 +127,7 @@ def _ffprobe_path() -> str:
 
 class AmazonProvider(BaseProvider):
     name = "amazon"
+    _prefetch_thread: threading.Thread | None = None
 
     def __init__(self, timeout_s: int = 120) -> None:
         super().__init__(timeout_s=timeout_s)
@@ -141,7 +143,7 @@ class AmazonProvider(BaseProvider):
             provider_key: str,
             endpoint: str,
             headers: dict | None = None,
-            params: dict | None = None,
+            params:  dict | None = None,
             payload: dict | None = None
     ) -> httpx.Response:
         config = API_ENDPOINTS.get(provider_key)
@@ -299,7 +301,6 @@ class AmazonProvider(BaseProvider):
     # ------------------------------------------------------------------
 
     def _solve_pow(self, challenge: dict) -> dict:
-        """Solve the PBKDF2/SHA-256 proof-of-work challenge from amz.squid.wtf."""
         p           = challenge["parameters"]
         nonce_bytes = bytes.fromhex(p["nonce"])
         salt        = bytes.fromhex(p["salt"])
@@ -307,52 +308,62 @@ class AmazonProvider(BaseProvider):
         key_len     = p["keyLength"]
         key_prefix  = p["keyPrefix"]
 
-        t0 = time.time()
-        counter = 0
-        while True:
-            password = nonce_bytes + counter.to_bytes(4, "big")
-            dk = hashlib.pbkdf2_hmac("sha256", password, salt, cost, dklen=key_len)
-            hex_key = binascii.hexlify(dk).decode()
-            if hex_key.startswith(key_prefix):
-                return {
-                    "counter":    counter,
-                    "derivedKey": hex_key,
-                    "time":       round((time.time() - t0) * 1000, 1),
-                }
-            counter += 1
+        num_workers = max(1, (os.cpu_count() or 4) // 2)
+        found       = threading.Event()
+        result: list = [None]
+        t0          = time.time()
+
+        def _worker(start: int, step: int) -> None:
+            counter = start
+            while not found.is_set():
+                password = nonce_bytes + counter.to_bytes(4, "big")
+                dk       = hashlib.pbkdf2_hmac("sha256", password, salt, cost, dklen=key_len)
+                hex_key  = binascii.hexlify(dk).decode()
+                if hex_key.startswith(key_prefix):
+                    result[0] = (counter, hex_key)
+                    found.set()
+                    return
+                counter += step
+
+        threads = [
+            threading.Thread(target=_worker, args=(i, num_workers), daemon=True)
+            for i in range(num_workers)
+        ]
+        for t in threads:
+            t.start()
+        found.wait()
+
+        counter, hex_key = result[0]
+        return {
+            "counter":    counter,
+            "derivedKey": hex_key,
+            "time":       round((time.time() - t0) * 1000, 1),
+        }
 
     def _get_squid_token(self, force_refresh: bool = False) -> str:
-        """Obtain (or reuse) a captcha token from amz.squid.wtf."""
         if self._squid_token and not force_refresh:
+            self._start_prefetch_if_needed()
             return self._squid_token
 
         _h = {
-            "accept":          "*/*",
-            "content-type":    "application/json",
-            "origin":          "https://amz.squid.wtf",
-            "referer":         "https://amz.squid.wtf/",
-            "user-agent":      _SQUID_UA,
+            "accept":       "*/*",
+            "content-type": "application/json",
+            "origin":       "https://amz.squid.wtf",
+            "referer":      "https://amz.squid.wtf/",
+            "user-agent":   _SQUID_UA,
         }
-
         try:
             challenge = self._session.get(
                 f"{_SQUID_BASE}/captcha/challenge", headers=_h, timeout=15
             ).json()
-
-            solution = self._solve_pow(challenge)
-
-            encoded = base64.b64encode(
-                json.dumps(
-                    {"challenge": challenge, "solution": solution},
-                    separators=(",", ":"),
-                ).encode()
+            solution  = self._solve_pow(challenge)
+            encoded   = base64.b64encode(
+                json.dumps({"challenge": challenge, "solution": solution},
+                           separators=(",", ":")).encode()
             ).decode()
-
             resp = self._session.post(
                 f"{_SQUID_BASE}/captcha/verify",
-                json={"payload": encoded},
-                headers=_h,
-                timeout=15,
+                json={"payload": encoded}, headers=_h, timeout=15,
             )
             self._squid_token = resp.json()["token"]
             logger.info(
@@ -360,60 +371,62 @@ class AmazonProvider(BaseProvider):
                 solution["counter"], solution["time"],
             )
             return self._squid_token
-
         except Exception as exc:
             raise RuntimeError(f"[amazon] Squid captcha failed: {exc}") from exc
 
+    def _prefetch_squid_token(self) -> None:
+        try:
+            self._squid_token = None
+            self._get_squid_token()
+        except Exception as exc:
+            logger.debug("[amazon] Squid pre-fetch failed (non-blocking): %s", exc)
+
+    def _start_prefetch_if_needed(self) -> None:
+        t = self.__class__._prefetch_thread
+        if t is None or not t.is_alive():
+            self.__class__._prefetch_thread = threading.Thread(
+                target=self._prefetch_squid_token, daemon=True
+            )
+            self.__class__._prefetch_thread.start()
+
     def _download_from_squid_api(self, asin: str, output_dir: str, requested_quality: str) -> tuple[str, dict] | None:
         """
-        Download a FLAC track directly from amz.squid.wtf.
-        The endpoint returns a raw binary FLAC stream (no decryption needed).
-        Retries with incremental backoff if the attempt fails auth or SSL drops.
+        Download a FLAC track directly from amz.squid.wtf via GET /api/stream.
+        tier=best  → Ultra HD FLAC 24-bit
+        tier=hd    → HD FLAC 16-bit
         """
         logger.info("[amazon] Trying Squid API (ASIN: %s)", asin)
 
         _h = {
-            "accept":          "*/*",
-            "content-type":    "application/json",
-            "origin":          "https://amz.squid.wtf",
-            "referer":         "https://amz.squid.wtf/",
-            "user-agent":      _SQUID_UA,
+            "accept":       "*/*",
+            "content-type": "application/json",
+            "origin":       "https://amz.squid.wtf",
+            "referer":      "https://amz.squid.wtf/",
+            "user-agent":   _SQUID_UA,
         }
 
-        # Mappatura della qualità richiesta ai parametri dell'API di Squid
         q_str = str(requested_quality).lower().strip()
-        squid_quality = 1 if q_str in ["hi_res", "hires", "hi-res", "hi-res-lossless"] else 2
+        tier  = "best" if q_str in ["hi_res", "hires", "hi-res", "hi-res-lossless"] else "hd"
 
-        payload = {
-            "asin":             asin,
-            "country":          "US",
-            "codec":            "flac",
-            "quality":          squid_quality,
-            "download_cover":   True,
-            "download_lyrics":  False,
-            "output_template":  "%(artist)s - %(title)s",
-        }
-
+        params    = {"asin": asin, "country": "US", "tier": tier}
         temp_file = os.path.join(output_dir, f"{asin}_squid.flac")
-        
+
         max_attempts = 2
         base_delay_s = 1.0
 
         for attempt in range(max_attempts):
             try:
-                # Forza il refresh del token se non siamo al primo tentativo
                 token = self._get_squid_token(force_refresh=(attempt > 0))
                 _h["x-captcha-token"] = token
 
                 with self._session.stream(
-                    "POST",
-                    f"{_SQUID_BASE}/download/track",
-                    json=payload,
+                    "GET",
+                    f"{_SQUID_BASE}/stream",
+                    params=params,
                     headers=_h,
                     timeout=120,
                 ) as resp:
 
-                    # Gestione dei token rifiutati/scaduti
                     if resp.status_code in (401, 403) and attempt < max_attempts - 1:
                         logger.info("[amazon] Squid token rejected, refreshing…")
                         self._squid_token = None
@@ -424,13 +437,12 @@ class AmazonProvider(BaseProvider):
                         logger.warning("[amazon] Squid API returned HTTP %d", resp.status_code)
                         return None
 
-                    total   = int(resp.headers.get("content-length", 0))
-                    written = 0
+                    total     = int(resp.headers.get("content-length", 0))
+                    written   = 0
                     validated = False
 
                     with open(temp_file, "wb") as f:
                         for chunk in resp.iter_bytes(65536):
-                            # Validate FLAC magic on first chunk
                             if not validated:
                                 if len(chunk) >= 4 and chunk[:4] != b"fLaC":
                                     logger.warning(
@@ -439,7 +451,6 @@ class AmazonProvider(BaseProvider):
                                     )
                                     return None
                                 validated = True
-                                
                             f.write(chunk)
                             written += len(chunk)
                             if self._progress_cb and total:
@@ -450,19 +461,13 @@ class AmazonProvider(BaseProvider):
 
             except Exception as exc:
                 logger.warning("[amazon] Squid error (attempt %d/%d): %s", attempt + 1, max_attempts, exc)
-                
-                # Pulizia del file parziale danneggiato
                 if os.path.exists(temp_file):
                     try:
                         os.remove(temp_file)
                     except OSError:
                         pass
-                
-                # Se abbiamo ancora tentativi a disposizione, aspettiamo e riproviamo
                 if attempt < max_attempts - 1:
-                    sleep_time = base_delay_s * (attempt + 1)
-                    logger.info("[amazon] Retrying Squid connection in %.1fs...", sleep_time)
-                    time.sleep(sleep_time)
+                    time.sleep(base_delay_s * (attempt + 1))
                     continue
 
         return None
@@ -817,7 +822,9 @@ class AmazonProvider(BaseProvider):
         logger.info("[amazon] Zarz failed. Trying Squid API…")
 
         # 2. SQUID API (Fallback 1 — direct FLAC, no decryption)
-        print_source_banner("amazon", f"{_SQUID_BASE}/download/track", fallback_quality)
+        q_str       = str(quality).lower().strip()
+        squid_tier  = "best" if q_str in ["hi_res", "hires", "hi-res", "hi-res-lossless"] else "hd"
+        print_source_banner("amazon", f"{_SQUID_BASE}/stream?asin={asin}&country=US&tier={squid_tier}", fallback_quality)
         try:
             squid_result = self._download_from_squid_api(asin, output_dir, quality)
             if squid_result and os.path.exists(squid_result[0]):
