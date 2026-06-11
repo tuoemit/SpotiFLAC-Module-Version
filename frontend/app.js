@@ -421,6 +421,9 @@ async function fetchVersionWithRetry(retries = 10, delayMs = 200) {
         const hero = document.getElementById('hero-version');
         if (tb) tb.innerText = v && v !== 'unknown' ? `v${v}` : 'v...';
         if (hero) hero.innerText = v && v !== 'unknown' ? `v${v}` : 'v...';
+        if (v && v !== 'unknown' && v !== '...') {
+          await checkLatestVersion(v);
+        }
         return;
       }
     } catch (e) {
@@ -431,6 +434,75 @@ async function fetchVersionWithRetry(retries = 10, delayMs = 200) {
 }
 
 document.addEventListener('DOMContentLoaded', () => fetchVersionWithRetry(20, 200));
+
+const UPDATE_RELEASE_URL = 'https://github.com/ShuShuzinhuu/SpotiFLAC-Module-Version/releases';
+
+function normalizeVersionString(version) {
+  return String(version || '').trim().replace(/^v/i, '');
+}
+
+function compareVersionStrings(a, b) {
+  const normalize = (value) => String(value || '').split(/[.\-+]/).map(part => {
+    const num = Number(part);
+    return Number.isNaN(num) ? part : num;
+  });
+  const partsA = normalize(a);
+  const partsB = normalize(b);
+  const maxLen = Math.max(partsA.length, partsB.length);
+
+  for (let i = 0; i < maxLen; i++) {
+    const partA = partsA[i] !== undefined ? partsA[i] : 0;
+    const partB = partsB[i] !== undefined ? partsB[i] : 0;
+
+    if (typeof partA === 'number' && typeof partB === 'number') {
+      if (partA !== partB) return partA > partB ? 1 : -1;
+      continue;
+    }
+
+    const aStr = String(partA);
+    const bStr = String(partB);
+    if (aStr !== bStr) return aStr > bStr ? 1 : -1;
+  }
+  return 0;
+}
+
+function showUpdateBadge(latestVersion, publishedAt) {
+  const tbBadge = document.getElementById('tb-update-badge');
+  const heroBadge = document.getElementById('hero-update-badge');
+  const title = latestVersion ? `Aggiornamento disponibile: v${latestVersion}` : 'Aggiornamento disponibile';
+  if (tbBadge) {
+    tbBadge.title = publishedAt ? `${title}\nRilasciata: ${publishedAt}` : title;
+    tbBadge.classList.remove('hidden');
+  }
+  if (heroBadge) {
+    heroBadge.title = publishedAt ? `${title}\nRilasciata: ${publishedAt}` : title;
+    heroBadge.classList.remove('hidden');
+  }
+}
+
+async function openReleasePage() {
+  if (window.pywebview?.api?.open_url) {
+    window.pywebview.api.open_url(UPDATE_RELEASE_URL);
+  } else {
+    window.open(UPDATE_RELEASE_URL, '_blank');
+  }
+}
+
+async function checkLatestVersion(currentVersion) {
+  const normalizedCurrent = normalizeVersionString(currentVersion);
+  if (!normalizedCurrent || normalizedCurrent === 'unknown' || normalizedCurrent === '...') return;
+  if (!window.pywebview?.api || typeof window.pywebview.api.get_latest_version !== 'function') return;
+
+  try {
+    const info = await window.pywebview.api.get_latest_version();
+    const latestVersion = normalizeVersionString(info?.latest_version);
+    if (latestVersion && compareVersionStrings(latestVersion, normalizedCurrent) > 0) {
+      showUpdateBadge(latestVersion, info?.published_at || '');
+    }
+  } catch (error) {
+    console.warn('Failed to check for updates:', error);
+  }
+}
 
 function buildSortItem(item, index) {
   const d = document.createElement('div');
