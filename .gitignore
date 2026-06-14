@@ -6,6 +6,6 @@ __pycache__/
 temp/
 /.idea
 /SpotiFLAC.egg-info
-
 /dist
 /downloads
+/.vscode
