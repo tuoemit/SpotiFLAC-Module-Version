@@ -14,6 +14,7 @@ from ..core.errors import SpotiflacError, ErrorKind, TrackNotFoundError
 from ..core.tagger import embed_metadata, EmbedOptions
 from ..core.download_validation import validate_downloaded_track
 from ..core.musicbrainz import AsyncMBFetch, mb_result_to_tags
+from ..core.endpoints import get_asian_provider_endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,6 @@ _DEFAULT_UA = (
     "Chrome/120.0.0.0 Safari/537.36"
 )
 
-_API_BASE = "https://music-api.gdstudio.xyz/api.php"
-_API_BASE_WJHE = "https://music.wjhe.top/api/music/joox"
 _SOURCE   = "joox"
 
 # ---------------------------------------------------------------------------
@@ -54,7 +53,7 @@ class JooxProvider(BaseProvider):
         """Search for tracks on JOOX via GD Studio."""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("joox", "search"),
                 params={
                     "types":  "search",
                     "source": _SOURCE,
@@ -80,7 +79,7 @@ class JooxProvider(BaseProvider):
         """
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("joox", "stream"),
                 params={
                     "types":  "url",
                     "source": _SOURCE,
@@ -107,7 +106,7 @@ class JooxProvider(BaseProvider):
         return "", 0
 
     def _get_stream_wjhe(self, track_id: str, quality: int = 1000, fmt: str = "flac") -> str:
-        url = f"{_API_BASE_WJHE}/url"
+        url = get_asian_provider_endpoint("joox", "stream_wjhe")
         params = {
             "ID":      track_id,
             "quality": quality,
@@ -195,7 +194,7 @@ class JooxProvider(BaseProvider):
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("joox", "gdstudio"),
                 params={
                     "types":  "pic",
                     "source": _SOURCE,
@@ -216,7 +215,7 @@ class JooxProvider(BaseProvider):
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("joox", "gdstudio"),
                 params={
                     "types":  "lyric",
                     "source": _SOURCE,
@@ -237,7 +236,7 @@ class JooxProvider(BaseProvider):
         """
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("joox", "gdstudio"),
                 params={
                     "types":  "search",
                     "source": f"{_SOURCE}_album",
@@ -411,7 +410,7 @@ class JooxProvider(BaseProvider):
             mb_fetcher = AsyncMBFetch(metadata.isrc) if metadata.isrc else None
 
             # ── 6. Source banner ──────────────────────────────────────────
-            print_source_banner("joox", _API_BASE, quality_label)
+            print_source_banner("joox", "", quality_label)
 
             # ── 7. Download ───────────────────────────────────────────────
             logger.info(

@@ -19,8 +19,8 @@ from ..core.models import TrackMetadata, DownloadResult
 from ..core.errors import SpotiflacError, ErrorKind
 from .base import BaseProvider
 from ..core.musicbrainz import mb_result_to_tags
+from ..core.endpoints import get_deezer_endpoint
 
-# Optional pycryptodome handling for Blowfish decryption
 try:
     from Crypto.Cipher import Blowfish
     HAS_CRYPTO = True
@@ -53,8 +53,6 @@ _RETRYABLE_SUBSTRINGS = (
 _BLOWFISH_SECRET = b"g4el58wc0zvf9na1"
 _BLOWFISH_IV = bytes.fromhex("0001020304050607")
 _CHUNK_SIZE = 2048
-_RESOLVER_URL = "https://api.zarz.moe/v1/dl/dzr"
-
 
 class _CacheEntry:
     __slots__ = ("data", "expires_at")
@@ -335,7 +333,7 @@ class DeezerProvider(BaseProvider):
 
     def _download_via_flacdownloader(self, track_id: str, title: str, artist: str, output_dir: str) -> Optional[Dict[str, Any]]:
         """Logica integrata dello script test_deezer_flacdownloader.py usata come fallback."""
-        prepare_url = "https://flacdownloader.com/prepare"
+        prepare_url = get_deezer_endpoint("flacdownloader_prepare")
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
             "Accept": "application/json",
@@ -355,7 +353,7 @@ class DeezerProvider(BaseProvider):
                 return None
 
             logger.info("[flacdownloader] Esecuzione del passaggio 2: Richiesta del link di scaricamento...")
-            download_url = "https://flacdownloader.com/asset" 
+            download_url = get_deezer_endpoint("flacdownloader_asset")
             headers["X-Dl-Token"] = token
             payload = {
                 "url": f"https://www.deezer.com/track/{track_id}",
@@ -412,7 +410,7 @@ class DeezerProvider(BaseProvider):
                 "platform": "deezer",
                 "url": f"https://www.deezer.com/track/{track_id}"
             }
-            api_data = self._post_json(_RESOLVER_URL, payload)
+            api_data = self._post_json(get_deezer_endpoint("resolver"), payload)
 
             if not api_data.get("success"):
                 logger.warning("[deezer] Unable to resolve link via Zarz: %s", api_data.get("message", "Unknown error"))
@@ -525,7 +523,7 @@ class DeezerProvider(BaseProvider):
 
             try:
                 from ..core.console import print_source_banner
-                print_source_banner("Deezer", _RESOLVER_URL, "FLAC Best Available")
+                print_source_banner("Deezer", "", "FLAC Best Available")
             except ImportError:
                 pass
 

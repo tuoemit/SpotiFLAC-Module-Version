@@ -33,6 +33,7 @@ from ..core.musicbrainz import AsyncMBFetch, mb_result_to_tags
 from ..core.provider_stats import record_success, record_failure, prioritize_providers
 from ..core.tagger import _print_mb_summary, EmbedOptions
 from ..core.tagger import embed_metadata
+from ..core.endpoints import get_qobuz_endpoints
 
 logger = logging.getLogger(__name__)
 
@@ -60,38 +61,12 @@ _BUNDLE_RE    = re.compile(r'<script[^>]+src="([^"]+/js/main\.js|/resources/[^"]
 _API_CONFIG_RE = re.compile(r'app_id:"(?P<app_id>\d{9})",app_secret:"(?P<app_secret>[a-f0-9]{32})"')
 _IMAGE_SIZE_RE = re.compile(r"_\d+\.jpg$")
 
-# Metadata API base URLs from manifest.json settings (primary + fallback).
-_META_API_PRIMARY  = "https://api.zarz.moe/v1/qbz"
-_META_API_FALLBACK = "https://api.zarz.moe/v1/qbz2"
-
-_STREAM_APIS: list[str] = [
-    "https://qbz.afkarxyz.qzz.io/api/track/",
-    "https://qobuz.spotbye.qzz.io/api/track/",
-]
-
-_QOBUZ_DL_ : list[str] = [
-    "https://qobuz.kennyy.com.br/api/download-music?",
-    "https://qobuz.squid.wtf/api/download-music?",
-    "https://mono.scavengerfurs.net/api/download-music?",
-]
-
-_POST_APIS: list[str] = [
-    "https://api.zarz.moe/v1/dl/qbz",
-    "https://api.zarz.moe/v1/dl/qbz2",
-]
-
-_GDSTUDIO_APIS: list[str] = [
-    "https://music.gdstudio.xyz/api.php",
-    "https://music.gdstudio.org/api.php",
-]
-
-_WJHE_APIS: list[str] = [
-    "https://music.wjhe.top/api/music/qobuz/url",
-]
-
-_FLACDOWNLOADER_APIS: list[str] = [
-    "https://flacdownloader.com",
-]
+_STREAM_APIS: list[str]         = get_qobuz_endpoints("stream")
+_QOBUZ_DL_: list[str]           = get_qobuz_endpoints("dl")
+_POST_APIS: list[str]           = get_qobuz_endpoints("post")
+_GDSTUDIO_APIS: list[str]       = get_qobuz_endpoints("gdstudio")
+_WJHE_APIS: list[str]           = get_qobuz_endpoints("wjhe")
+_FLACDOWNLOADER_APIS: list[str] = get_qobuz_endpoints("flacdownloader")
 
 _QUALITY_FALLBACK: dict[str, list[str]] = {
     "27":              ["27", "7", "6"],
@@ -680,7 +655,7 @@ def _fetch_stream_url_parallel(
                 logger.debug("[qobuz] parallel: got URL from %s in %.2fs", api, time.time() - start)
                 pool.shutdown(wait=False, cancel_futures=True)
                 record_success("qobuz", api)
-                print_source_banner("qobuz", api, quality)
+                print_source_banner("qobuz", "", quality)
                 return api, stream_url
             except Exception as exc:
                 err_msg = str(exc)[:80]

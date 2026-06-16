@@ -13,6 +13,7 @@ from ..core.errors import SpotiflacError, ErrorKind, TrackNotFoundError
 from ..core.tagger import embed_metadata, EmbedOptions
 from ..core.download_validation import validate_downloaded_track
 from ..core.musicbrainz import AsyncMBFetch, mb_result_to_tags
+from ..core.endpoints import get_asian_provider_endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,6 @@ _DEFAULT_UA = (
     "Chrome/120.0.0.0 Safari/537.36"
 )
 
-_API_BASE = "https://music-api.gdstudio.xyz/api.php"
 _SOURCE   = "netease"
 
 # br=740 → 16-bit FLAC lossless, br=999 → 24-bit FLAC lossless.
@@ -58,7 +58,7 @@ class NeteaseProvider(BaseProvider):
         """Search for tracks on Netease. Returns raw API result items."""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "search",
                     "source": _SOURCE,
@@ -86,7 +86,7 @@ class NeteaseProvider(BaseProvider):
         """
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "url",
                     "source": _SOURCE,
@@ -120,7 +120,7 @@ class NeteaseProvider(BaseProvider):
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "pic",
                     "source": _SOURCE,
@@ -141,7 +141,7 @@ class NeteaseProvider(BaseProvider):
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "lyric",
                     "source": _SOURCE,
@@ -162,7 +162,7 @@ class NeteaseProvider(BaseProvider):
         """
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "search",
                     "source": f"{_SOURCE}_album",
@@ -344,7 +344,7 @@ class NeteaseProvider(BaseProvider):
             mb_fetcher = AsyncMBFetch(metadata.isrc) if metadata.isrc else None
 
             # ── 6. Source banner ──────────────────────────────────────────
-            print_source_banner("netease", _API_BASE, "FLAC")
+            print_source_banner("netease", "", "FLAC")
 
             # ── 7. Download ───────────────────────────────────────────────
             logger.info("[netease] Downloading '%s' (id=%s)", metadata.title, raw_track_id)

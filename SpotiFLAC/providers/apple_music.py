@@ -17,14 +17,15 @@ from ..core.models import TrackMetadata, DownloadResult
 from ..core.musicbrainz import AsyncMBFetch, mb_result_to_tags
 from ..core.provider_stats import record_success, record_failure
 from ..core.tagger import embed_metadata, _print_mb_summary, EmbedOptions
+from ..core.endpoints import get_apple_music_endpoint
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 
 API_ENDPOINTS = {
-    "proxy_direct": "https://api.zarz.moe/v1/dl/app2",
-    "proxy_queued": "https://api.zarz.moe/v1/dl/app"
+    "proxy_direct": get_apple_music_endpoint("proxy_direct"),
+    "proxy_queued": get_apple_music_endpoint("proxy_queued")
 }
 
 class AppleMusicProvider(BaseProvider):
@@ -119,14 +120,13 @@ class AppleMusicProvider(BaseProvider):
                     best_score = score
                     best_match = r.get("trackViewUrl")
 
-            # Gestione sicura della LRU cache
             if best_match:
                 self._url_cache[cache_key] = best_match
                 if len(self._url_cache) > self._cache_limit:
                     try:
                         self._url_cache.popitem(last=False)
                     except KeyError:
-                        pass  # Protezione concorrenza estrema
+                        pass
 
             return best_match
 
@@ -147,9 +147,10 @@ class AppleMusicProvider(BaseProvider):
         }
 
         # 1. Tentativo Diretto (App2)
+        proxy_direct = get_apple_music_endpoint("proxy_direct")
         try:
             resp = self._session.post(
-                API_ENDPOINTS["proxy_direct"],
+                proxy_direct,
                 json={"url": track_url, "codec": codec},
                 headers=req_headers,
                 timeout=15
@@ -161,16 +162,16 @@ class AppleMusicProvider(BaseProvider):
             resp.raise_for_status()
             data = resp.json()
             if data.get("success") and data.get("stream_url"):
-                record_success(self.name, API_ENDPOINTS["proxy_direct"])
-                return API_ENDPOINTS["proxy_direct"], data["stream_url"]
+                record_success(self.name, proxy_direct)
+                return proxy_direct, data["stream_url"]
 
         except httpx.HTTPStatusError as e:
             err_msg = e.response.json().get("error") if e.response.text else str(e)
             logger.debug("[apple-music] app2 rifiutato per %s: %s", codec, err_msg)
-            record_failure(self.name, API_ENDPOINTS["proxy_direct"])
+            record_failure(self.name, proxy_direct)
         except Exception as e:
             logger.debug("[apple-music] Fallback ad app2 fallito: %s", e)
-            record_failure(self.name, API_ENDPOINTS["proxy_direct"])
+            record_failure(self.name, proxy_direct)
 
         # 2. Tentativo in Coda (App)
         download_endpoint = f"{API_ENDPOINTS['proxy_queued']}/download"
@@ -334,7 +335,7 @@ class AppleMusicProvider(BaseProvider):
             if used_codec != target_codec:
                 print_quality_fallback("Apple Music", target_codec.upper(), used_codec.upper())
 
-            print_source_banner("Apple Music", api_used or "Proxy", used_codec.upper())
+            print_source_banner("Apple Music", "", used_codec.upper())
 
             self._http.stream_to_file(stream_url, str(dest), self._progress_cb)
 

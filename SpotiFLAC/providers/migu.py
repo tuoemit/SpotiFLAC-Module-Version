@@ -14,6 +14,7 @@ from ..core.errors import SpotiflacError, ErrorKind, TrackNotFoundError
 from ..core.tagger import embed_metadata, EmbedOptions
 from ..core.download_validation import validate_downloaded_track
 from ..core.musicbrainz import AsyncMBFetch, mb_result_to_tags
+from ..core.endpoints import get_asian_provider_endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +23,6 @@ _DEFAULT_UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"
 )
-
-# Endpoint dell'API
-_API_BASE   = "https://music.wjhe.top/api.php"
-_API_STREAM = "https://music.wjhe.top/api/music/migu/url"
 _SOURCE     = "migu"
 
 
@@ -52,7 +49,7 @@ class MiguProvider(BaseProvider):
         """Cerca tracce su Migu tramite l'API specificata."""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("migu", "api_base"),
                 params={
                     "types":  "search",
                     "source": _SOURCE,
@@ -98,7 +95,7 @@ class MiguProvider(BaseProvider):
         for q_val, fmt, label in attempts:
             try:
                 resp = self._session.get(
-                    _API_STREAM,
+                    get_asian_provider_endpoint("migu", "api_stream"),
                     params={
                         "ID": track_id,
                         "quality": q_val,
@@ -137,7 +134,7 @@ class MiguProvider(BaseProvider):
         # Fallback estremo all'API di ricerca URL generica qualora l'endpoint specifico fallisca del tutto
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("migu", "api_base"),
                 params={"types": "url", "source": _SOURCE, "id": track_id, "br": 999},
                 timeout=10
             )
@@ -161,7 +158,7 @@ class MiguProvider(BaseProvider):
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("migu", "api_base"),
                 params={
                     "types":  "pic",
                     "source": _SOURCE,
@@ -182,7 +179,7 @@ class MiguProvider(BaseProvider):
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("migu", "api_base"),
                 params={
                     "types":  "lyric",
                     "source": _SOURCE,
@@ -201,7 +198,7 @@ class MiguProvider(BaseProvider):
         """Recupera la lista tracce di un album."""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("migu", "api_base"),
                 params={
                     "types":  "search",
                     "source": f"{_SOURCE}_album",
@@ -368,7 +365,7 @@ class MiguProvider(BaseProvider):
             # 5. Fetch asincrono dei tag da MusicBrainz
             mb_fetcher = AsyncMBFetch(metadata.isrc) if metadata.isrc else None
 
-            print_source_banner("migu", _API_BASE, quality_label)
+            print_source_banner("migu", "", quality_label)
 
             # 6. Download
             logger.info("[migu] Downloading '%s' (id=%s, quality=%s)", metadata.title, raw_track_id, quality_label)

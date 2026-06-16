@@ -25,6 +25,7 @@ from ..core.errors import SpotiflacError, ErrorKind
 from ..core.models import TrackMetadata, DownloadResult
 from ..core.musicbrainz import mb_result_to_tags
 from ..core.tagger import embed_metadata, EmbedOptions
+from ..core.endpoints import get_amazon_endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -33,28 +34,29 @@ _DEFAULT_UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/131.0.0.0 Safari/537.36"
 )
-
-_SQUID_BASE = "https://amz.squid.wtf/api"
 _SQUID_UA   = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/149.0.0.0 Safari/537.36"
 )
 
-API_ENDPOINTS = {
-    "spotbye1": {
-        "base_url": "https://amz.spotbye.qzz.io/api",
-        "method": "POST"
-    },
-    "spotbye2": {
-        "base_url": "https://amazon.spotbye.qzz.io/api",
-        "method": "GET"
-    },
-    "zarz": {
-        "base_url": "https://api.zarz.moe/v1/dl/amazeamazeamaze",
-        "method": "GET"
-    }
-}
+# ---------------------------------------------------------------------------
+# Backward Compatibility for Tagger
+# ---------------------------------------------------------------------------
+
+class _APIEndpointsProxy(dict):
+    """
+    Proxy dictionary to route legacy API_ENDPOINTS imports from tagger.py 
+    into the new get_amazon_endpoint registry system.
+    """
+    def __getitem__(self, key: str) -> str:
+        return get_amazon_endpoint(key)
+
+    def get(self, key: str, default=None):
+        val = get_amazon_endpoint(key)
+        return val if val else default
+
+API_ENDPOINTS = _APIEndpointsProxy()
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -90,9 +92,6 @@ def _get_amazon_debug_key() -> str:
     )
     _amazon_debug_key = plaintext.decode().strip()
     return _amazon_debug_key
-
-def _sanitize(value: str) -> str:
-    return re.sub(r'[\\/*?:"<>|]', "", value).strip()
 
 def _first_artist(artist_str: str) -> str:
     if not artist_str:
@@ -144,16 +143,16 @@ class AmazonProvider(BaseProvider):
             endpoint: str,
             headers: dict | None = None,
             params:  dict | None = None,
-            payload: dict | None = None
+            payload: dict | None = None,
+            method: str = "GET" 
     ) -> httpx.Response:
-        config = API_ENDPOINTS.get(provider_key)
-        if not config:
-            raise ValueError(f"Unknown provider: {provider_key}")
+        base_url = get_amazon_endpoint(provider_key)
+        if not base_url:
+            raise ValueError(f"Endpoint non trovato per il provider: {provider_key}")
 
-        url = f"{config['base_url']}{endpoint}"
-        method = config.get("method", "GET").upper()
+        url = f"{base_url}{endpoint}"
 
-        if method == "POST":
+        if method.upper() == "POST":
             return self._session.post(url, json=payload, headers=headers, timeout=30)
         return self._session.get(url, params=params, headers=headers, timeout=30)
 
@@ -354,7 +353,7 @@ class AmazonProvider(BaseProvider):
         }
         try:
             challenge = self._session.get(
-                f"{_SQUID_BASE}/captcha/challenge", headers=_h, timeout=15
+                f"{get_amazon_endpoint('squid')}/captcha/challenge", headers=_h, timeout=15
             ).json()
             solution  = self._solve_pow(challenge)
             encoded   = base64.b64encode(
@@ -362,7 +361,7 @@ class AmazonProvider(BaseProvider):
                            separators=(",", ":")).encode()
             ).decode()
             resp = self._session.post(
-                f"{_SQUID_BASE}/captcha/verify",
+                f"{get_amazon_endpoint('squid')}/captcha/verify",
                 json={"payload": encoded}, headers=_h, timeout=15,
             )
             self._squid_token = resp.json()["token"]
@@ -427,7 +426,7 @@ class AmazonProvider(BaseProvider):
 
                 with self._session.stream(
                     "GET",
-                    f"{_SQUID_BASE}/stream",
+                    f"{get_amazon_endpoint('squid')}/stream",
                     params=params,
                     headers=_h,
                     timeout=120,
@@ -683,8 +682,12 @@ class AmazonProvider(BaseProvider):
     def _download_from_spotbye_api(self, asin: str, output_dir: str, provider_key: str) -> tuple[str, dict]:
         logger.info("[amazon] Fetching track from %s API (ASIN: %s)", provider_key, asin)
 
-        config = API_ENDPOINTS.get(provider_key)
-        method = config.get("method", "GET").upper()
+        endpoint_url = get_amazon_endpoint(provider_key)
+    
+        if not endpoint_url:
+            raise SpotiflacError(ErrorKind.NETWORK, f"Endpoint non valido: {provider_key}")
+            
+        method = "GET"
 
         if method == "POST":
             endpoint = "/track"
@@ -700,7 +703,7 @@ class AmazonProvider(BaseProvider):
         try:
             resp = self._make_api_request(
                 provider_key=provider_key, endpoint=endpoint,
-                headers=headers, payload=payload, params=params,
+                headers=headers, payload=payload, params=params, method=method
             )
         except (httpx.RequestError, httpx.ConnectError) as exc:
             raise SpotiflacError(
@@ -768,8 +771,9 @@ class AmazonProvider(BaseProvider):
         return final, api_meta
 
     def _download_from_spotbye1_api(self, asin: str, output_dir: str) -> tuple[str, dict]:
+        base_url = get_amazon_endpoint("spotbye1")
         resp = self._session.post(
-            "https://amz.spotbye.qzz.io/api/track",
+            f"{base_url}/track",
             json={"asin": asin, "tier": "best"},
             headers={"Accept": "*/*", "User-Agent": _DEFAULT_UA},
             timeout=30
@@ -909,9 +913,9 @@ class AmazonProvider(BaseProvider):
 
         # 1. ZARZ API (Primary)
         codec = self._quality_to_zarz_codec(quality)
-        zarz_url = f"{API_ENDPOINTS['zarz']['base_url']}/media?asin={asin}&codec={codec}"
+        zarz_url = f"{get_amazon_endpoint('zarz')}/media?asin={asin}&codec={codec}"
         display_quality = "Best Available Quality (up to 24-bit/48kHz)" if codec == "flac" else quality
-        print_source_banner("amazon", zarz_url, display_quality)
+        print_source_banner("amazon", "", display_quality)
 
         zarz_result = self._download_from_zarz_api(asin, output_dir, quality)
         if zarz_result and os.path.exists(zarz_result[0]):
@@ -922,7 +926,7 @@ class AmazonProvider(BaseProvider):
         # 2. SQUID API (Fallback 1 — direct FLAC, no decryption)
         q_str       = str(quality).lower().strip()
         squid_tier  = "best" if q_str in ["hi_res", "hires", "hi-res", "hi-res-lossless", "hi_res_lossless" , "HI_RES", "HIRES", "HI-RES" ,"HI-RES-LOSSLESS", "HI_RES_LOSSLESS"] else "hd"
-        print_source_banner("amazon", f"{_SQUID_BASE}/stream?asin={asin}&country=US&tier={squid_tier}", fallback_quality)
+        print_source_banner("amazon", "", fallback_quality)
         try:
             squid_result = self._download_from_squid_api(asin, output_dir, quality)
             if squid_result and os.path.exists(squid_result[0]):
@@ -933,7 +937,7 @@ class AmazonProvider(BaseProvider):
         logger.info("[amazon] Squid failed. Trying Spotbye1…")
 
         # 3. SPOTBYE 1 (Fallback 2)
-        print_source_banner("amazon", API_ENDPOINTS['spotbye1']['base_url'], fallback_quality)
+        print_source_banner("amazon", "", fallback_quality)
         try:
             return self._download_from_spotbye1_api(asin, output_dir)
         except Exception as exc:
@@ -942,7 +946,7 @@ class AmazonProvider(BaseProvider):
         logger.info("[amazon] Spotbye1 failed. Trying Spotbye2…")
 
         # 4. SPOTBYE 2 (Fallback 3)
-        print_source_banner("amazon", API_ENDPOINTS['spotbye2']['base_url'], fallback_quality)
+        print_source_banner("amazon", "", fallback_quality)
         try:
             return self._download_from_spotbye_api(asin, output_dir, provider_key="spotbye2")
         except Exception as exc:
@@ -951,7 +955,7 @@ class AmazonProvider(BaseProvider):
         logger.info("[amazon] Spotbye2 failed. Trying MusicDL API…")
 
         # 5. MUSICDL (Fallback 4 - Telegram CDN)
-        print_source_banner("amazon", "https://dl.musicdl.me/download", "BEST QUALITY AVAILABLE (MOSTLY 16 bit 44.1 Hz)")
+        print_source_banner("amazon", "", "BEST QUALITY AVAILABLE (MOSTLY 16 bit 44.1 Hz)")
         try:
             return self._download_from_musicdl_api(amazon_url, asin, output_dir)
         except Exception as exc:

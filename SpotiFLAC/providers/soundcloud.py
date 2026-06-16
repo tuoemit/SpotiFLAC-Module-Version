@@ -15,6 +15,7 @@ from ..core.http import HttpClient
 from ..core.link_resolver import LinkResolver
 from ..core.models import DownloadResult, TrackMetadata
 from ..core.tagger import embed_metadata, EmbedOptions
+from ..core.endpoints import get_soundcloud_cobalt
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class SoundCloudProvider(BaseProvider):
         self.client_id: str | None = None
         self.client_id_expiry: float = 0
         self._sc_version = ""
-        self.cobalt_api  = "https://api.zarz.moe/v1/dl/cobalt/"
+        self.cobalt_api  = get_soundcloud_cobalt()
         self.session     = NetworkManager.get_sync_client() 
         self.session.headers.update({
             "User-Agent": (

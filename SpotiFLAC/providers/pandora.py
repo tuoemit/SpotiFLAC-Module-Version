@@ -29,6 +29,7 @@ from ..core.http import RetryConfig
 from ..core.models import TrackMetadata, DownloadResult
 from ..core.musicbrainz import AsyncMBFetch, mb_result_to_tags
 from ..core.tagger import embed_metadata, _print_mb_summary, EmbedOptions
+from ..core.endpoints import get_pandora_base_and_path
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +37,6 @@ logger = logging.getLogger(__name__)
 # Constants & Compiled Regexes
 # ---------------------------------------------------------------------------
 
-_API_BASE_URL    = "https://api.zarz.moe"
-_DOWNLOAD_PATH   = "/v1/dl/pan"
 _SONGLINK_URL    = "https://api.song.link/v1-alpha.1/links"
 _DEEZER_API_URL  = "https://api.deezer.com"
 _PANDORA_BASE    = "https://www.pandora.com"
@@ -832,13 +831,16 @@ class PandoraProvider(BaseProvider):
 
             mb_fetcher = AsyncMBFetch(metadata.isrc) if metadata.isrc else None
 
-            print_source_banner("pandora", f"{_API_BASE_URL}{_DOWNLOAD_PATH}", quality)
+            pan_base, pan_path = get_pandora_base_and_path()
+            pan_full_url = f"{pan_base}{pan_path}"
+
+            print_source_banner("pandora", "", quality)
 
             zarz_id = _extract_pandora_track_id(download_url)
             safe_api_url = _build_pandora_url(zarz_id) if zarz_id else download_url
 
             payload = self._post_json(
-                f"{_API_BASE_URL}{_DOWNLOAD_PATH}",
+                pan_full_url,
                 {"url": safe_api_url},
             )
 

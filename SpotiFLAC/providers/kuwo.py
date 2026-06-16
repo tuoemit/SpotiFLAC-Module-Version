@@ -14,6 +14,7 @@ from ..core.errors import SpotiflacError, ErrorKind, TrackNotFoundError
 from ..core.tagger import embed_metadata, EmbedOptions
 from ..core.download_validation import validate_downloaded_track
 from ..core.musicbrainz import AsyncMBFetch, mb_result_to_tags
+from ..core.endpoints import get_asian_provider_endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,6 @@ _DEFAULT_UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"
 )
-
-_API_BASE = "https://music-api.gdstudio.xyz/api.php"
 _SOURCE   = "kuwo"
 
 # br=740 → 16-bit FLAC lossless, br=999 → 24-bit FLAC lossless.
@@ -57,7 +56,7 @@ class KuwoProvider(BaseProvider):
         """Search for tracks on Kuwo. Returns raw API result items."""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "search",
                     "source": _SOURCE,
@@ -85,7 +84,7 @@ class KuwoProvider(BaseProvider):
         """
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "url",
                     "source": _SOURCE,
@@ -121,7 +120,7 @@ class KuwoProvider(BaseProvider):
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "pic",
                     "source": _SOURCE,
@@ -145,7 +144,7 @@ class KuwoProvider(BaseProvider):
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "lyric",
                     "source": _SOURCE,
@@ -166,7 +165,7 @@ class KuwoProvider(BaseProvider):
         """
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "search",
                     "source": f"{_SOURCE}_album",
@@ -343,7 +342,7 @@ class KuwoProvider(BaseProvider):
             mb_fetcher = AsyncMBFetch(metadata.isrc) if metadata.isrc else None
 
             # ── 7. Source banner ──────────────────────────────────────────
-            print_source_banner("kuwo", _API_BASE, quality_label)
+            print_source_banner("kuwo", "", quality_label)
 
             # ── 8. Download ───────────────────────────────────────────────
             logger.info("[kuwo] Downloading '%s' (id=%s, br=%d)", metadata.title, raw_track_id, actual_br)

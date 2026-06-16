@@ -19,6 +19,8 @@ from ..core.tagger import embed_metadata, EmbedOptions
 from ..core.musicbrainz import mb_result_to_tags
 from ..core.download_validation import validate_downloaded_track
 from ..core.musicbrainz import AsyncMBFetch
+# FIXED IMPORT:
+from ..core.endpoints import get_youtube_endpoints
 
 logger = logging.getLogger(__name__)
 
@@ -31,16 +33,6 @@ _DEFAULT_UA = (
 # Parametri InnerTube allineati al JS
 YT_SEARCH_PARAMS_TRACKS = "EgWKAQIIAQ=="
 INNERTUBE_CLIENT_VERSION = "1.20240801.01.00"
-
-def _sanitize(value: str) -> str:
-    return re.sub(r'[\\/*?:"<>|]', "", value).strip()
-
-def _safe_int(value: Any) -> int:
-    try:
-        return int(value)
-    except (ValueError, TypeError):
-        return 0
-
 
 class YouTubeProvider(BaseProvider):
     name = "youtube"
@@ -95,7 +87,8 @@ class YouTubeProvider(BaseProvider):
         details = data.get("videoDetails", {})
         title = details.get("title", "Unknown")
         artist = details.get("author", "Unknown Artist")
-        duration = int(details.get("lengthSeconds", 0)) * 1000
+        # FIXED: Safe casting to integer in case API returns None or empty string
+        duration = int(details.get("lengthSeconds") or 0) * 1000
 
         thumbs = details.get("thumbnail", {}).get("thumbnails", [])
         cover_url = thumbs[-1].get("url") if thumbs else ""
@@ -400,14 +393,10 @@ class YouTubeProvider(BaseProvider):
         return False
 
     def _request_cobalt(self, video_url: str) -> str | None:
-        cobalt_instances = [
-            "https://api.zarz.moe",
-            "https://co.wuk.sh",
-            "https://cobalt.qiaeru.tech",
-            "https://cobalt.cibere.dev",
-            "https://cobalt.owo.vc",
-            "https://api.cobalt.tools"
-        ]
+        # FIXED: Corrected the function call and normalized to list
+        cobalt_instances = get_youtube_endpoints("cobalt")
+        if not isinstance(cobalt_instances, list):
+            cobalt_instances = [cobalt_instances] if cobalt_instances else []
 
         headers = {
             "Content-Type": "application/json",
@@ -423,7 +412,13 @@ class YouTubeProvider(BaseProvider):
                     "downloadMode": "audio",
                     "audioFormat": "mp3"
                 }
-                api_url = f"{base_url.rstrip('/')}/v1/dl" if base_url == "https://api.zarz.moe" else f"{base_url.rstrip('/')}/"
+                
+                # FIXED: Extracted safely if returned as list; falls back to base_url
+                zarz_data = get_youtube_endpoints("zarz_clean")
+                if isinstance(zarz_data, list):
+                    api_url = zarz_data[0] if zarz_data else base_url
+                else:
+                    api_url = zarz_data or base_url
                 
                 resp = self._session.post(api_url, json=payload_v10, headers=headers, timeout=10)
 
