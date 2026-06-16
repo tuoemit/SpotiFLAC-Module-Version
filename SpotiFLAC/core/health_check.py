@@ -1,18 +1,3 @@
-"""
-Service health check — verifica la disponibilità dei provider prima del download.
-Importa gli endpoint direttamente dai moduli provider invece di duplicarli.
-Esegue richieste parallele con timeout breve (2 s) agli endpoint reali (non ufficiali).
-Usa asyncio + httpx.AsyncClient al posto di thread per I/O non bloccante.
-
-Uso (contesto async):
-    results = await run_health_check(["tidal", "qobuz", "deezer"])
-
-Uso (contesto sync):
-    results = run_health_check_sync(["tidal", "qobuz", "deezer"])
-
-    print_health_report(results)
-    all_ok = any(r.ok for r in results)
-"""
 from __future__ import annotations
 
 import asyncio
@@ -25,7 +10,7 @@ import httpx
 
 
 # ---------------------------------------------------------------------------
-# Helper per la validazione del payload  (invariato)
+# Helper per la validazione del payload
 # ---------------------------------------------------------------------------
 
 def _is_streaming_url(raw: str) -> bool:
@@ -56,7 +41,7 @@ def _contains_streaming_url(body: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Import endpoint lists directly from provider modules  (invariato)
+# Import endpoint lists directly from provider modules
 # ---------------------------------------------------------------------------
 
 _TIDAL_MAX_MIRRORS = 8
@@ -95,7 +80,7 @@ def _load_endpoints() -> dict[str, list[tuple[str, str]]]:
 
     # ── Qobuz ──────────────────────────────────────────────────────────────
     try:
-        from ..providers.qobuz import _STREAM_APIS, _POST_APIS
+        from ..providers.qobuz import _STREAM_APIS, _POST_APIS, _FLACDOWNLOADER_APIS
 
         qobuz_eps: list[tuple[str, str]] = []
         _QOBUZ_PROBE_ID = "3135556"
@@ -106,12 +91,17 @@ def _load_endpoints() -> dict[str, list[tuple[str, str]]]:
                 qobuz_eps.append(("GET", f"{url}{_QOBUZ_PROBE_ID}?quality=6"))
         for url in _POST_APIS:
             qobuz_eps.append(("POST", url))
+        for url in _FLACDOWNLOADER_APIS:
+            qobuz_eps.append(("GET", f"{url.rstrip('/')}/prepare"))
         qobuz_eps.append(("GET", "https://api.zarz.moe/v1/health"))
         qobuz_eps.append(("GET", "https://qbz.squid.wtf/"))
         endpoints["qobuz"] = qobuz_eps
     except ImportError:
-        endpoints["qobuz"] = [("GET", "https://api.zarz.moe/v1/health")]
-        endpoints["qobuz"] = [("GET", "https://qbz.squid.wtf/")]
+        endpoints["qobuz"] = [
+            ("GET", "https://flacdownloader.com/prepare"),
+            ("GET", "https://api.zarz.moe/v1/health"),
+            ("GET", "https://qbz.squid.wtf/")
+        ]
 
     # ── Deezer ─────────────────────────────────────────────────────────────
     try:
@@ -119,11 +109,13 @@ def _load_endpoints() -> dict[str, list[tuple[str, str]]]:
 
         endpoints["deezer"] = [
             ("POST", _RESOLVER_URL),
+            ("GET", "https://flacdownloader.com/prepare"),
             ("GET", "https://api.zarz.moe/v1/health"),
         ]
     except ImportError:
         endpoints["deezer"] = [
             ("POST", "https://api.zarz.moe/v1/dl/dzr"),
+            ("GET", "https://flacdownloader.com/prepare"),
             ("GET", "https://api.zarz.moe/v1/health"),
         ]
 
@@ -199,18 +191,6 @@ def _load_endpoints() -> dict[str, list[tuple[str, str]]]:
             ("GET", "https://music.wjhe.top/api/music/joox/url?ID=11259&quality=1000&format=flac"),
         ]
 
-    # ── FlacDownloader ────────────────────────────────────────────────────
-    try:
-        from ..providers.flacdownloader import _API_BASE as FLAC_BASE
-
-        endpoints["flacdownloader"] = [
-            ("GET", f"{FLAC_BASE}/download-token?t=9997018&f=FLAC")
-        ]
-    except ImportError:
-        endpoints["flacdownloader"] = [
-            ("GET", "https://flacdownloader.com/flac/download-token?t=9997018&f=FLAC")
-        ]
-
     return endpoints
 
 
@@ -231,7 +211,7 @@ _ENDPOINTS: dict[str, list[tuple[str, str]]] = _load_endpoints()
 def _make_async_client() -> httpx.AsyncClient:
     """
     Crea un AsyncClient con i limiti di connessione appropriati.
-    Usato come context manager in run_health_check per garantire cleanup corretto.
+    Usato como context manager in run_health_check per garantire cleanup corretto.
     Una nuova istanza per ogni chiamata evita problemi di binding all'event loop.
     """
     return httpx.AsyncClient(
@@ -245,7 +225,7 @@ def _make_async_client() -> httpx.AsyncClient:
 
 
 # ---------------------------------------------------------------------------
-# Data model  (invariato)
+# Data model
 # ---------------------------------------------------------------------------
 
 class HealthResult(NamedTuple):
@@ -272,18 +252,6 @@ async def _check_one(
         t0 = time.perf_counter()
 
         req_kwargs: dict = {"headers": {"User-Agent": _UA}}
-
-        if provider == "flacdownloader":
-            req_kwargs["headers"].update({
-                "Accept": "*/*",
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.0.0 Safari/537.36"
-                ),
-                "Content-Type": "application/json",
-                "X-Download-Access": "l@p*gute)77=g5clebcp4lz#=x%(*rwg+ku0_)bh=&%6wg!a",
-            })
 
         if method == "POST" and provider == "deezer":
             req_kwargs["json"] = {
@@ -390,7 +358,10 @@ async def _check_one(
                     try:
                         parsed = json.loads(body)
                         if isinstance(parsed, dict) and body.strip():
-                            ok, detail = True, parsed.get("error", "JSON OK")
+                            if parsed.get("t"):
+                                ok, detail = True, "FlacDL OK"
+                            else:
+                                ok, detail = True, parsed.get("error", "JSON OK")
                     except ValueError:
                         detail = "No Stream URL"
 
@@ -398,23 +369,15 @@ async def _check_one(
             elif provider == "deezer":
                 try:
                     parsed = json.loads(body)
+                    # Supporta sia l'API Deezer ("id") sia flacdownloader ("t")
                     if parsed.get("id") and not parsed.get("error"):
                         ok, detail = True, "API OK"
+                    elif parsed.get("t"):
+                        ok, detail = True, "FlacDL OK"
                     else:
                         detail = parsed.get("error", {}).get("message", "API Error")
                 except ValueError:
                     detail = "Bad JSON"
-
-            # ── FlacDownloader ─────────────────────────────────────────────
-            elif provider == "flacdownloader":
-                try:
-                    parsed = json.loads(body)
-                    if "token" in parsed or "expires" in parsed or "error" in parsed:
-                        ok, detail = True, "API OK"
-                    else:
-                        detail = "Unknown JSON"
-                except ValueError:
-                    detail = "CF Blocked / HTML"
 
             # ── Apple / SoundCloud / YouTube / default ─────────────────────
             else:
@@ -624,7 +587,7 @@ def run_health_check_sync(
 
 
 # ---------------------------------------------------------------------------
-# Report rendering  (invariato)
+# Report rendering
 # ---------------------------------------------------------------------------
 
 _URL_MAX = 48
@@ -689,7 +652,7 @@ def print_health_report(
 
 
 # ---------------------------------------------------------------------------
-# Convenience helpers  (invariato)
+# Convenience helpers
 # ---------------------------------------------------------------------------
 
 def any_service_ok(results: list[HealthResult]) -> bool:
