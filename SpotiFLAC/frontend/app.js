@@ -3190,18 +3190,18 @@ function renderHealthResults(data) {
   const container = $('hc-results'); container.innerHTML = '';
   Object.entries(provMap).forEach(([prov, rows]) => {
     const anyOk = rows.some(r => r.ok);
+    const okCount = rows.filter(r => r.ok).length;
+    const totalCount = rows.length;
     const group  = document.createElement('div');
-    group.className = 'hc-prov-group s-section'; group.style.padding = '10px 12px';
-    group.innerHTML = `<div class="hc-prov-name"><span class="hc-dot ${anyOk ? 'ok' : 'err'}"></span>${prov} <span style="font-size:10px;font-weight:400;color:var(--muted)">${rows.filter(r => r.ok).length}/${rows.length}</span></div>`;
-    rows.forEach(r => {
-      const lat      = r.latency < 0 ? 'timeout' : `${r.latency}ms`;
-      const latClass = r.latency < 0 ? '' : r.latency < 300 ? 'good' : 'slow';
-      const shortUrl = r.url.length > 48 ? '…' + r.url.slice(-46) : r.url;
-      const row = document.createElement('div');
-      row.className = `hc-row ${r.ok ? 'ok-r' : 'err-r'}`;
-      row.innerHTML = `<span class="hc-ind">${r.ok ? '✓' : '✗'}</span><span class="hc-meth">${r.method}</span><span class="hc-url" title="${r.url}">${shortUrl}</span><span class="hc-detail" title="${r.detail}">${r.detail}</span><span class="hc-lat ${latClass}">${lat}</span>`;
-      group.appendChild(row);
-    });
+    group.className = 'hc-prov-group s-section';
+    group.style.padding = '10px 12px';
+    group.innerHTML = `
+      <div class="hc-prov-name">
+        <span class="hc-dot ${anyOk ? 'ok' : 'err'}"></span>
+        ${prov}
+        <span style="font-size:10px;font-weight:400;color:var(--muted)">${okCount}/${totalCount} endpoints OK</span>
+      </div>
+    `;
     container.appendChild(group);
   });
 }
