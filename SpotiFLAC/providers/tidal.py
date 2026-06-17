@@ -910,11 +910,29 @@ class TidalProvider(BaseProvider):
             **kwargs:            Any,
     ) -> DownloadResult:
         try:
-            if metadata.id.startswith("tidal_"):
-                tidal_url = f"https://listen.tidal.com/track/{metadata.id.removeprefix('tidal_')}"
-                logger.info("[tidal] Direct Tidal ID detected: %s", metadata.id)
+            # Backwards compatibility: accept an int or str track id in place of a TrackMetadata object.
+            from types import SimpleNamespace
+            if isinstance(metadata, (int, str)):
+                # If numeric, treat as a direct tidal track id; otherwise keep string id (likely a Spotify id)
+                try:
+                    numeric = int(metadata)
+                    metadata = SimpleNamespace(id=f"tidal_{numeric}", title="", artists="", isrc="", duration_ms=0, cover_url=None)
+                except Exception:
+                    metadata = SimpleNamespace(id=str(metadata), title="", artists="", isrc="", duration_ms=0, cover_url=None)
+
+            # Proceed using the normalized metadata object
+            meta_id = getattr(metadata, "id", "")
+            if meta_id and str(meta_id).startswith("tidal_"):
+                tidal_url = f"https://listen.tidal.com/track/{str(meta_id).removeprefix('tidal_')}"
+                logger.info("[tidal] Direct Tidal ID detected: %s", meta_id)
             else:
-                tidal_url = self.resolve_spotify_to_tidal(metadata.id, metadata.title, metadata.artists, metadata.isrc, metadata.duration_ms)
+                tidal_url = self.resolve_spotify_to_tidal(
+                    getattr(metadata, "id", ""),
+                    getattr(metadata, "title", ""),
+                    getattr(metadata, "artists", ""),
+                    getattr(metadata, "isrc", ""),
+                    getattr(metadata, "duration_ms", 0),
+                )
             track_id = self._parse_track_id(tidal_url)
 
             mb_fetcher = None
