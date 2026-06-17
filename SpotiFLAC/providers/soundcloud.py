@@ -15,6 +15,8 @@ from ..core.http import HttpClient
 from ..core.link_resolver import LinkResolver
 from ..core.models import DownloadResult, TrackMetadata
 from ..core.tagger import embed_metadata, EmbedOptions
+from ..core.endpoints import get_soundcloud_cobalt
+from ..core.quality import normalize_quality
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +45,7 @@ class SoundCloudProvider(BaseProvider):
         self.client_id: str | None = None
         self.client_id_expiry: float = 0
         self._sc_version = ""
-        self.cobalt_api  = "https://api.zarz.moe/v1/dl/cobalt/"
+        self.cobalt_api  = get_soundcloud_cobalt()
         self.session     = NetworkManager.get_sync_client() 
         self.session.headers.update({
             "User-Agent": (
@@ -67,7 +69,7 @@ class SoundCloudProvider(BaseProvider):
             
         body = res.text
 
-        # Controlla se la versione SC è cambiata — evita fetch inutili
+        # Check se la versione SC è cambiata — evita fetch inutili
         version_match = self._REGEX_SC_VERSION.search(body)
         if version_match:
             new_version = version_match.group(1)
@@ -136,7 +138,7 @@ class SoundCloudProvider(BaseProvider):
     # ==========================================
 
     def _get_hires_artwork(self, url: str | None) -> str:
-        """Aggiorna l'URL copertina alla massima risoluzione disponibile."""
+        """Update l'URL copertina alla massima risoluzione disponibile."""
         if not url:
             return ""
         return url.replace("-large.", "-t500x500.") if "-large." in url else url
@@ -180,7 +182,7 @@ class SoundCloudProvider(BaseProvider):
 
     def _resolve_short_link(self, url: str) -> str:
         """
-        Segue il redirect di on.soundcloud.com e restituisce l'URL canonico.
+        Follows il redirect di on.soundcloud.com e restituisce l'URL canonico.
         """
         try:
             res = self.session.get(url, timeout=10, follow_redirects=True) 
@@ -421,12 +423,12 @@ class SoundCloudProvider(BaseProvider):
         elif kind == "user":
             return data.get("username", "Unknown Artist"), self._get_user_tracks_list(data.get("id"))
             
-        raise ValueError(f"Tipo URL SoundCloud non supportato: {kind}")
+        raise ValueError(f"SoundCloud URL type not supported: {kind}")
 
     def get_metadata_from_url(self, url: str) -> TrackMetadata:
         _, tracks = self.get_url(url)
         if not tracks:
-            raise ValueError(f"Nessuna traccia trovata per: {url}")
+            raise ValueError(f"No tracks found for: {url}")
         return tracks[0]
 
     # ==========================================
@@ -540,19 +542,23 @@ class SoundCloudProvider(BaseProvider):
                 or metadata.extra_info.get("exclusive")
                 or (metadata.external_url and "soundcloud.com" in metadata.external_url)
         )
+        q_norm = normalize_quality(quality)
+        # SoundCloud only provides lossy formats; prefer mp3/progressive. Keep mp3 for compatibility.
+        audio_format = "mp3"
         dl_url = None
 
         if is_native:
             dl_url = self.get_download_url(
                 track_id        = metadata.id,
                 track_permalink = metadata.external_url or None,
+                audio_format     = audio_format,
             )
         else:
             try:
                 resolver = LinkResolver(HttpClient("odesli"))
                 links    = resolver.resolve_all(metadata.id)
                 if sc_url := links.get("soundcloud"):
-                    dl_url = self.get_download_url(track_id=None, track_permalink=sc_url)
+                    dl_url = self.get_download_url(track_id=None, track_permalink=sc_url, audio_format=audio_format)
             except Exception as e:
                 logger.warning("[SC] Odesli resolution error: %s", e)
                 
@@ -563,7 +569,7 @@ class SoundCloudProvider(BaseProvider):
                     search_results = self.search(search_query, limit=5)
                     if best_track := self._find_best_match(search_results, metadata.title, metadata.artists, metadata.duration_ms):
                         logger.info("[SC] Found fallback via search: %s (ID: %s)", best_track.get("name"), best_track.get("id"))
-                        dl_url = self.get_download_url(track_id=best_track.get("id"), track_permalink=best_track.get("permalink_url"))
+                        dl_url = self.get_download_url(track_id=best_track.get("id"), track_permalink=best_track.get("permalink_url"), audio_format=audio_format)
                     else:
                         logger.warning("[SC] No suitable fallback track found matching criteria.")
                 except Exception as e:
@@ -606,7 +612,7 @@ class SoundCloudProvider(BaseProvider):
             )
             embed_metadata(str(dest), metadata, opts, session=self.session)
         except Exception as exc:
-            logger.warning("[SC] embed_metadata failed (file salvato senza tag): %s", exc)
+            logger.warning("[SC] embed_metadata failed (file saved senza tag): %s", exc)
 
         logger.info("[SC] Completed: %s", dest.name)
         return DownloadResult.ok(self.name, str(dest), fmt="mp3")

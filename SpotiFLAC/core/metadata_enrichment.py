@@ -58,7 +58,7 @@ class EnrichedMetadata:
         return tags
 
     def merge(self, other: "EnrichedMetadata", source: str) -> None:
-        """Aggiorna solo i campi vuoti con i dati dell'altro oggetto."""
+        """Update solo i campi vuoti con i dati dell'altro oggetto."""
         for attr in ("genre", "label", "bpm", "upc", "isrc", "cover_url_hd"):
             if not getattr(self, attr) and getattr(other, attr):
                 setattr(self, attr, getattr(other, attr))
@@ -202,22 +202,8 @@ class _AppleMusicMeta:
 # Provider: Tidal — ottimizzato con ricerca parallela e API list cached
 # ---------------------------------------------------------------------------
 
-_TIDAL_APIS_BUILTIN = [
-    "https://eu-central.monochrome.tf",
-    "https://us-west.monochrome.tf",
-    "https://api.monochrome.tf",
-    "https://monochrome-api.samidy.com",
-    "https://tidal-api.binimum.org",
-    "https://tidal.kinoplus.online",
-    "https://triton.squid.wtf",
-    "https://vogel.qqdl.site",
-    "https://maus.qqdl.site",
-    "https://hund.qqdl.site",
-    "https://katze.qqdl.site",
-    "https://wolf.qqdl.site",
-    "https://hifi-one.spotisaver.net",
-    "https://hifi-two.spotisaver.net",
-]
+# Built-in Tidal API list removed for privacy. Use get_tidal_api_list() or populate registry.
+_TIDAL_APIS_BUILTIN = []
 
 
 class _TidalMeta:
@@ -252,7 +238,7 @@ class _TidalMeta:
         threading.Thread(target=self._refresh_bg, daemon=True).start()
 
     def _refresh_bg(self) -> None:
-        """Aggiorna la lista API in background senza bloccare l'enrichment."""
+        """Update la lista API in background senza bloccare l'enrichment."""
         try:
             from ..providers.tidal import refresh_tidal_api_list
             apis = refresh_tidal_api_list(force=False)
@@ -275,7 +261,7 @@ class _TidalMeta:
         return out
 
     def _try_api(self, api: str, query: str) -> dict | None:
-        """Prova un singolo API endpoint; ritorna la prima traccia trovata o None."""
+        """Try a single API endpoint; return the first track found or None."""
         base = api.rstrip("/")
         for endpoint in (
                 f"{base}/search/?s={query}&limit=3",
@@ -296,7 +282,7 @@ class _TidalMeta:
     def _search_parallel(self, title: str, artist: str) -> dict | None:
         """
         Interroga le API Tidal in parallelo invece di sequenzialmente.
-        Ritorna al primo risultato valido, cancellando i worker rimasti.
+        Returns al primo risultato valido, cancellando i worker rimasti.
         """
         from urllib.parse import quote
         clean  = re.sub(r"\s*[\(\[][^\)\]]*[\)\]]", "", title).strip() or title
@@ -399,7 +385,7 @@ class _SoundCloudMeta:
         try:
             from ..providers.soundcloud import SoundCloudProvider
             p = SoundCloudProvider()
-            # Verifica che il client_id sia già disponibile (da cache)
+            # Verify che il client_id sia già disponibile (da cache)
             # senza fare richieste HTTP bloccanti durante l'enrichment
             if p.client_id or p.client_id_expiry > time.time():
                 self._provider = p
@@ -489,8 +475,8 @@ def enrich_metadata(
     Interroga i provider in parallelo e unisce i risultati.
 
     Args:
-        track_name:  Nome della traccia.
-        artist_name: Artista principale.
+        track_name:  Nome della track.
+        artist_name: Artist principale.
         isrc:        ISRC (usato da Deezer e Qobuz).
         providers:   Lista ordinata di provider da usare.
         timeout_s:   Timeout massimo globale in secondi (default: 6.0).

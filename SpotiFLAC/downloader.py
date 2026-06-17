@@ -26,6 +26,7 @@ from .providers.base import BaseProvider
 from .providers.spotify_metadata import SpotifyMetadataClient
 from .core.isrc_helper import IsrcHelper
 from .core.http import HttpClient
+from .core.quality import normalize_quality
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
@@ -144,7 +145,7 @@ def download_one(
                     use_album_track_num     = opts.use_album_track_numbers,
                     first_artist_only       = opts.first_artist_only,
                     allow_fallback          = opts.allow_fallback,
-                    quality                 = opts.quality,
+                    quality                 = normalize_quality(opts.quality),
                     embed_lyrics            = opts.embed_lyrics,
                     lyrics_providers        = opts.lyrics_providers,
                     enrich_metadata         = opts.enrich_metadata,
@@ -291,7 +292,7 @@ class DownloadWorker:
     ) -> list[tuple[str, str, str]]:
         MAX_CONCURRENT_DOWNLOADS = 2
         
-        # Funzione helper che scarica una singola traccia
+        # Funzione helper che scarica una singola track
         def worker_task(i: int, track: TrackMetadata):
             position = i + 1
             # sys.stdout è ora _TqdmStdoutProxy: qualsiasi print() interno

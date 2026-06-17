@@ -14,6 +14,9 @@ from ..core.errors import SpotiflacError, ErrorKind, TrackNotFoundError
 from ..core.tagger import embed_metadata, EmbedOptions
 from ..core.download_validation import validate_downloaded_track
 from ..core.musicbrainz import AsyncMBFetch, mb_result_to_tags
+from ..core.endpoints import get_asian_provider_endpoint
+from ..core.flac_validation import validate_and_repair_if_needed
+from ..core.quality import normalize_quality
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +25,6 @@ _DEFAULT_UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"
 )
-
-# Endpoint dell'API
-_API_BASE   = "https://music.wjhe.top/api.php"
-_API_STREAM = "https://music.wjhe.top/api/music/migu/url"
 _SOURCE     = "migu"
 
 
@@ -49,10 +48,10 @@ class MiguProvider(BaseProvider):
     # ------------------------------------------------------------------
 
     def _search(self, query: str, count: int = 10) -> list[dict]:
-        """Cerca tracce su Migu tramite l'API specificata."""
+        """Cerca tracks su Migu tramite l'API specificata."""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("migu", "gdstudio"),
                 params={
                     "types":  "search",
                     "source": _SOURCE,
@@ -78,7 +77,7 @@ class MiguProvider(BaseProvider):
         Implementa il fallback gerarchico 24-bit -> 16-bit per formati FLAC/M4A.
         Rifiuta attivamente MP3 e URL lossy generici.
         
-        Ritorna una tupla: (url_stream, estensione_file, etichetta_qualità).
+        Returns una tupla: (url_stream, estensione_file, etichetta_qualità).
         """
         
         # Ordine di tentativi strettamente ad alta qualità
@@ -98,7 +97,7 @@ class MiguProvider(BaseProvider):
         for q_val, fmt, label in attempts:
             try:
                 resp = self._session.get(
-                    _API_STREAM,
+                    get_asian_provider_endpoint("migu", "api_stream"),
                     params={
                         "ID": track_id,
                         "quality": q_val,
@@ -109,7 +108,7 @@ class MiguProvider(BaseProvider):
                 resp.raise_for_status()
                 
                 dl_url = ""
-                # Gestione della risposta: potrebbe essere JSON annidato o una stringa raw
+                # Response handling: potrebbe essere JSON nested o una stringa raw
                 try:
                     data = resp.json()
                     if isinstance(data, dict):
@@ -125,7 +124,7 @@ class MiguProvider(BaseProvider):
                     if text_resp.startswith("http"):
                         dl_url = text_resp
                         
-                # Verifica che l'URL sia valido e non porti a un MP3 di errore ("404.mp3")
+                # Verify che l'URL sia valido e non porti a un MP3 di errore ("404.mp3")
                 if dl_url and isinstance(dl_url, str) and dl_url.startswith("http"):
                     if "404" not in dl_url and "null" not in dl_url.lower():
                         logger.debug("[migu] Found stream using quality=%d format=%s", q_val, fmt)
@@ -137,7 +136,7 @@ class MiguProvider(BaseProvider):
         # Fallback estremo all'API di ricerca URL generica qualora l'endpoint specifico fallisca del tutto
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("migu", "api_base"),
                 params={"types": "url", "source": _SOURCE, "id": track_id, "br": 999},
                 timeout=10
             )
@@ -156,12 +155,12 @@ class MiguProvider(BaseProvider):
         return "", "", ""
 
     def _get_pic_url(self, pic_id: str, size: int = 500) -> str:
-        """Recupera l'URL della copertina dell'album."""
+        """Retrieves l'URL della copertina dell'album."""
         if not pic_id:
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("migu", "api_base"),
                 params={
                     "types":  "pic",
                     "source": _SOURCE,
@@ -177,12 +176,12 @@ class MiguProvider(BaseProvider):
         return ""
 
     def _get_lyric(self, lyric_id: str) -> str:
-        """Recupera il testo della canzone (LRC)."""
+        """Retrieves il testo della canzone (LRC)."""
         if not lyric_id:
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("migu", "api_base"),
                 params={
                     "types":  "lyric",
                     "source": _SOURCE,
@@ -198,10 +197,10 @@ class MiguProvider(BaseProvider):
         return ""
 
     def _get_album_tracks(self, album_id: str) -> list[dict]:
-        """Recupera la lista tracce di un album."""
+        """Retrieves la lista tracks di un album."""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("migu", "api_base"),
                 params={
                     "types":  "search",
                     "source": f"{_SOURCE}_album",
@@ -264,7 +263,7 @@ class MiguProvider(BaseProvider):
     # ------------------------------------------------------------------
 
     def get_url(self, url: str) -> tuple[str, list[TrackMetadata]]:
-        """Interpreta URL o query e restituisce la collezione trovata."""
+        """Interpreta URL o query e restituisce la collezione found."""
         match = re.search(r"(\d{5,})", url)
 
         if match and "_album" in url.lower():
@@ -287,7 +286,7 @@ class MiguProvider(BaseProvider):
         if not items:
             raise SpotiflacError(
                 ErrorKind.TRACK_NOT_FOUND,
-                f"Nessun risultato trovato su Migu per: {query}",
+                f"Nessun risultato found su Migu per: {query}",
                 self.name,
             )
         tracks = [self._item_to_metadata(it, i + 1) for i, it in enumerate(items)]
@@ -325,13 +324,13 @@ class MiguProvider(BaseProvider):
             # 1. Ricerca se non abbiamo l'ID di Migu
             if not raw_track_id:
                 query = f"{metadata.title} {metadata.first_artist}".strip()
-                logger.info("[migu] Cerco traccia: %s", query)
+                logger.info("[migu] Searching track: %s", query)
                 items = self._search(query, count=5)
                 if not items:
-                    raise TrackNotFoundError(self.name, f"Traccia non trovata su Migu: {query}")
+                    raise TrackNotFoundError(self.name, f"Track not found su Migu: {query}")
                 raw_track_id = str(items[0].get("id", ""))
                 if not raw_track_id:
-                    raise TrackNotFoundError(self.name, "ID traccia vuoto dai risultati di Migu")
+                    raise TrackNotFoundError(self.name, "Empty track ID from Migu results")
                 extra = {
                     "raw_track_id": raw_track_id,
                     "pic_id":       str(items[0].get("pic_id", "")),
@@ -339,7 +338,8 @@ class MiguProvider(BaseProvider):
                 }
 
             # 2. Richiesta del flusso audio all'API con Fallback intelligente
-            dl_url, extension, quality_label = self._get_stream(raw_track_id, quality)
+            q_norm = normalize_quality(quality) if isinstance(quality, str) else quality
+            dl_url, extension, quality_label = self._get_stream(raw_track_id, q_norm)
             if not dl_url:
                 raise SpotiflacError(
                     ErrorKind.UNAVAILABLE,
@@ -368,7 +368,7 @@ class MiguProvider(BaseProvider):
             # 5. Fetch asincrono dei tag da MusicBrainz
             mb_fetcher = AsyncMBFetch(metadata.isrc) if metadata.isrc else None
 
-            print_source_banner("migu", _API_BASE, quality_label)
+            print_source_banner("migu", "", quality_label)
 
             # 6. Download
             logger.info("[migu] Downloading '%s' (id=%s, quality=%s)", metadata.title, raw_track_id, quality_label)
@@ -429,14 +429,24 @@ class MiguProvider(BaseProvider):
                             audio.save()
                             logger.debug("[migu] Testo Migu aggiunto su M4A")
                 except Exception as exc:
-                    logger.warning("[migu] Impossibile aggiungere il testo nativo: %s", exc)
+                    logger.warning("[migu] Unable to aggiungere il testo nativo: %s", exc)
 
             fmt = extension.replace(".", "")
+            
+            # Validate and repair FLAC files if needed
+            if str(dest).lower().endswith(".flac"):
+                success, repair_msg = validate_and_repair_if_needed(str(dest))
+                if not success:
+                    logger.error("[migu] FLAC file validation failed: %s", repair_msg)
+                    raise SpotiflacError(ErrorKind.FILE_IO, f"FLAC validation failed: {repair_msg}", self.name)
+                if repair_msg:
+                    logger.info("[migu] FLAC file repair status: %s", repair_msg)
+            
             return DownloadResult.ok(self.name, str(dest), fmt=fmt)
 
         except SpotiflacError as exc:
             logger.error("[%s] %s", self.name, exc)
             return DownloadResult.fail(self.name, str(exc))
         except Exception as exc:
-            logger.exception("[%s] Errore imprevisto", self.name)
+            logger.exception("[%s] Error imprevisto", self.name)
             return DownloadResult.fail(self.name, f"Unexpected: {exc}")

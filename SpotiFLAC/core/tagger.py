@@ -155,7 +155,7 @@ def _embed_id3(
     except ID3NoHeaderError:
         audio = ID3()
 
-    # ── numeri traccia e disco ──────────────────────────────────────────────
+    # ── numeri track e disco ──────────────────────────────────────────────
     track_num   = tags.get("TRACKNUMBER", "0")
     track_total = tags.get("TRACKTOTAL",  "0")
     disc_num    = tags.get("DISCNUMBER",  "1")
@@ -451,7 +451,7 @@ def embed_metadata(
     if opts.extra_tags:
         merged_extra.update(opts.extra_tags)
 
-    # Per tracce singole l'GENRE dell'enrichment ha priorità
+    # Per tracks singole l'GENRE dell'enrichment ha priorità
     if not opts.is_album:
         enrich_genre = enriched_tags.get("GENRE")
         if enrich_genre:
@@ -459,7 +459,7 @@ def embed_metadata(
             for k in [k for k in merged_extra if k.upper() == "GENRE"]:
                 del merged_extra[k]
 
-    # Protezione: non sovrascrivere campi già presenti nel metadata base
+    # Guard: non sovrascrivere campi già presenti nel metadata base
     if metadata.composer:
         merged_extra.pop("COMPOSER", None)
         merged_extra.pop("composer", None)
@@ -467,7 +467,7 @@ def embed_metadata(
         merged_extra.pop("COPYRIGHT", None)
         merged_extra.pop("copyright", None)
 
-    # Gestione date originali
+    # Handling date originali
     orig_date = merged_extra.get("original_date") or merged_extra.get("ORIGINALDATE")
     if orig_date:
         tags["ORIGINALDATE"] = str(orig_date)

@@ -14,6 +14,9 @@ from ..core.errors import SpotiflacError, ErrorKind, TrackNotFoundError
 from ..core.tagger import embed_metadata, EmbedOptions
 from ..core.download_validation import validate_downloaded_track
 from ..core.musicbrainz import AsyncMBFetch, mb_result_to_tags
+from ..core.endpoints import get_asian_provider_endpoint
+from ..core.flac_validation import validate_and_repair_if_needed
+from ..core.quality import normalize_quality, map_musicdl_quality
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +26,6 @@ _DEFAULT_UA = (
     "Chrome/120.0.0.0 Safari/537.36"
 )
 
-_API_BASE = "https://music-api.gdstudio.xyz/api.php"
-_API_BASE_WJHE = "https://music.wjhe.top/api/music/joox"
 _SOURCE   = "joox"
 
 # ---------------------------------------------------------------------------
@@ -54,7 +55,7 @@ class JooxProvider(BaseProvider):
         """Search for tracks on JOOX via GD Studio."""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("joox", "gdstudio"),
                 params={
                     "types":  "search",
                     "source": _SOURCE,
@@ -80,7 +81,7 @@ class JooxProvider(BaseProvider):
         """
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("joox", "gdstudio"),
                 params={
                     "types":  "url",
                     "source": _SOURCE,
@@ -106,11 +107,27 @@ class JooxProvider(BaseProvider):
             logger.debug("[joox-gd] Stream fetch failed for id=%s: %s", track_id, exc)
         return "", 0
 
+
     def _get_stream_wjhe(self, track_id: str, quality: int = 1000, fmt: str = "flac") -> str:
-        url = f"{_API_BASE_WJHE}/url"
+        # Accept canonical quality values; allow legacy numeric/br values too
+        if isinstance(quality, str):
+            # Map canonical -> numeric quality for WJHE/GDStudio
+            n = normalize_quality(quality)
+            if n == "HI_RES_LOSSLESS":
+                quality_val = 999
+            elif n == "HI_RES":
+                quality_val = 740
+            elif n == "LOSSLESS":
+                quality_val = 740
+            else:
+                quality_val = 320
+        else:
+            quality_val = quality
+
+        url = get_asian_provider_endpoint("joox", "wjhe")
         params = {
             "ID":      track_id,
-            "quality": quality,
+            "quality": quality_val,
             "format":  fmt,
         }
         
@@ -195,7 +212,7 @@ class JooxProvider(BaseProvider):
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("joox", "gdstudio"),
                 params={
                     "types":  "pic",
                     "source": _SOURCE,
@@ -216,7 +233,7 @@ class JooxProvider(BaseProvider):
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("joox", "gdstudio"),
                 params={
                     "types":  "lyric",
                     "source": _SOURCE,
@@ -237,7 +254,7 @@ class JooxProvider(BaseProvider):
         """
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint("joox", "gdstudio"),
                 params={
                     "types":  "search",
                     "source": f"{_SOURCE}_album",
@@ -378,8 +395,10 @@ class JooxProvider(BaseProvider):
                 }
 
             # ── 2. Fetch stream URL with quality-aware fallback chain ──────
+            # Map canonical quality to provider-specific request
+            q_norm = normalize_quality(quality) if isinstance(quality, str) else str(quality)
             dl_url, extension, actual_br, quality_label = self._get_stream_with_fallback(
-                raw_track_id, quality
+                raw_track_id, q_norm
             )
 
             if not dl_url:
@@ -411,7 +430,7 @@ class JooxProvider(BaseProvider):
             mb_fetcher = AsyncMBFetch(metadata.isrc) if metadata.isrc else None
 
             # ── 6. Source banner ──────────────────────────────────────────
-            print_source_banner("joox", _API_BASE, quality_label)
+            print_source_banner("joox", "", quality_label)
 
             # ── 7. Download ───────────────────────────────────────────────
             logger.info(
@@ -477,6 +496,16 @@ class JooxProvider(BaseProvider):
                     logger.warning("[joox] Lyrics embed failed: %s", exc)
 
             fmt = extension.lstrip(".")
+            
+            # Validate and repair FLAC files if needed
+            if str(dest).lower().endswith(".flac"):
+                success, repair_msg = validate_and_repair_if_needed(str(dest))
+                if not success:
+                    logger.error("[joox] FLAC file validation failed: %s", repair_msg)
+                    raise SpotiflacError(ErrorKind.FILE_IO, f"FLAC validation failed: {repair_msg}", self.name)
+                if repair_msg:
+                    logger.info("[joox] FLAC file repair status: %s", repair_msg)
+            
             return DownloadResult.ok(self.name, str(dest), fmt=fmt)
 
         except SpotiflacError as exc:

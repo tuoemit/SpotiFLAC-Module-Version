@@ -14,6 +14,9 @@ from ..core.errors import SpotiflacError, ErrorKind, TrackNotFoundError
 from ..core.tagger import embed_metadata, EmbedOptions
 from ..core.download_validation import validate_downloaded_track
 from ..core.musicbrainz import AsyncMBFetch, mb_result_to_tags
+from ..core.endpoints import get_asian_provider_endpoint
+from ..core.flac_validation import validate_and_repair_if_needed
+from ..core.quality import normalize_quality
 
 logger = logging.getLogger(__name__)
 
@@ -22,14 +25,14 @@ _DEFAULT_UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"
 )
-
-_API_BASE = "https://music-api.gdstudio.xyz/api.php"
 _SOURCE   = "kuwo"
 
 # br=740 → 16-bit FLAC lossless, br=999 → 24-bit FLAC lossless.
 _BR_LOSSLESS    = 999
 _BR_LOSSLESS_CD = 740
 
+
+from ..core.quality import normalize_quality
 
 class KuwoProvider(BaseProvider):
     """
@@ -57,7 +60,7 @@ class KuwoProvider(BaseProvider):
         """Search for tracks on Kuwo. Returns raw API result items."""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "search",
                     "source": _SOURCE,
@@ -85,7 +88,7 @@ class KuwoProvider(BaseProvider):
         """
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "url",
                     "source": _SOURCE,
@@ -121,7 +124,7 @@ class KuwoProvider(BaseProvider):
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "pic",
                     "source": _SOURCE,
@@ -145,7 +148,7 @@ class KuwoProvider(BaseProvider):
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "lyric",
                     "source": _SOURCE,
@@ -166,7 +169,7 @@ class KuwoProvider(BaseProvider):
         """
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "search",
                     "source": f"{_SOURCE}_album",
@@ -310,6 +313,9 @@ class KuwoProvider(BaseProvider):
                 }
 
             # ── 2. Fetch stream URL ───────────────────────────────────────
+            # Accept canonical quality from downloader; default to lossless
+            q = normalize_quality(quality) if isinstance(quality, str) else "LOSSLESS"
+            # If user requested looser quality, still prefer lossless for Kuwo
             dl_url, actual_br = self._get_stream(raw_track_id)
             if not dl_url:
                 raise SpotiflacError(
@@ -343,7 +349,7 @@ class KuwoProvider(BaseProvider):
             mb_fetcher = AsyncMBFetch(metadata.isrc) if metadata.isrc else None
 
             # ── 7. Source banner ──────────────────────────────────────────
-            print_source_banner("kuwo", _API_BASE, quality_label)
+            print_source_banner("kuwo", "", quality_label)
 
             # ── 8. Download ───────────────────────────────────────────────
             logger.info("[kuwo] Downloading '%s' (id=%s, br=%d)", metadata.title, raw_track_id, actual_br)
@@ -397,6 +403,15 @@ class KuwoProvider(BaseProvider):
                         logger.debug("[kuwo] Kuwo lyrics embedded (%d chars)", len(gd_lyrics))
                 except Exception as exc:
                     logger.warning("[kuwo] Lyrics embed failed: %s", exc)
+
+            # Validate and repair FLAC files if needed
+            if str(dest).lower().endswith(".flac"):
+                success, repair_msg = validate_and_repair_if_needed(str(dest))
+                if not success:
+                    logger.error("[kuwo] FLAC file validation failed: %s", repair_msg)
+                    raise SpotiflacError(ErrorKind.FILE_IO, f"FLAC validation failed: {repair_msg}", self.name)
+                if repair_msg:
+                    logger.info("[kuwo] FLAC file repair status: %s", repair_msg)
 
             return DownloadResult.ok(self.name, str(dest), fmt="flac")
 

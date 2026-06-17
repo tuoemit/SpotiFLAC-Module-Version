@@ -8,13 +8,15 @@ from urllib.parse import urlparse
 
 import httpx
 
+from ..core.endpoints import get_health_zarz_url
+
 
 # ---------------------------------------------------------------------------
 # Helper per la validazione del payload
 # ---------------------------------------------------------------------------
 
 def _is_streaming_url(raw: str) -> bool:
-    """Verifica se una stringa è un URL HTTP/HTTPS valido."""
+    """Check if una stringa è un URL HTTP/HTTPS valido."""
     if not raw or not isinstance(raw, str):
         return False
     parsed = urlparse(raw.strip())
@@ -41,176 +43,119 @@ def _contains_streaming_url(body: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Import endpoint lists directly from provider modules
+# Import endpoint lists directly from centralized provider
 # ---------------------------------------------------------------------------
 
 _TIDAL_MAX_MIRRORS = 8
 
-
 def _load_endpoints() -> dict[str, list[tuple[str, str]]]:
     """
-    Carica dinamicamente gli endpoint da ogni modulo provider.
-    Ritorna un dict {provider_name: [(method, url), ...]}
+    Carica dinamicamente gli endpoint interrogando il registro centralizzato.
+    Returns un dict {provider_name: [(method, url), ...]}
     Esclude le API ufficiali, ma mantiene i check centralizzati Zarz.
     """
+    from ..core.endpoints import (
+        get_qobuz_endpoints,
+        get_tidal_post_endpoints,
+        get_deezer_endpoint,
+        get_amazon_endpoint,
+        get_asian_provider_endpoint,
+        get_soundcloud_cobalt,
+        get_pandora_base_and_path,
+        get_health_zarz_url,
+    )
+
     endpoints: dict[str, list[tuple[str, str]]] = {}
+    zarz_health = get_health_zarz_url() or "https://api.zarz.moe/v1/health"
 
     # ── Tidal ──────────────────────────────────────────────────────────────
+    tidal_eps = []
     try:
-        from ..providers.tidal import (
-            _TIDAL_APIS_GET,
-            _TIDAL_API_POST,
-            get_tidal_api_list,
-        )
-        try:
-            tidal_get = get_tidal_api_list()
-        except Exception:
-            tidal_get = list(_TIDAL_APIS_GET)
-
-        tidal_get = tidal_get[:_TIDAL_MAX_MIRRORS]
-        tidal_eps = [
-            ("GET", f"{url.rstrip('/')}/track/?id=251380837&quality=LOSSLESS")
-            for url in tidal_get
-        ]
-        tidal_eps += [("POST", url) for url in _TIDAL_API_POST]
-        tidal_eps.append(("GET", "https://api.zarz.moe/v1/health"))
-        endpoints["tidal"] = tidal_eps
-    except ImportError:
-        endpoints["tidal"] = [
-            ("POST", "https://api.zarz.moe/v1/dl/tid2"),
-            ("GET", "https://api.zarz.moe/v1/health")
-        ]
+        from ..providers.tidal import get_tidal_api_list
+        for url in get_tidal_api_list()[:_TIDAL_MAX_MIRRORS]:
+            tidal_eps.append(("GET", f"{url.rstrip('/')}/track/?id=251380837&quality=LOSSLESS"))
+    except Exception:
+        pass
+        
+    for url in get_tidal_post_endpoints():
+        tidal_eps.append(("POST", url))
+    tidal_eps.append(("GET", zarz_health))
+    endpoints["tidal"] = tidal_eps
 
     # ── Qobuz ──────────────────────────────────────────────────────────────
-    try:
-        from ..providers.qobuz import (
-            _STREAM_APIS, _POST_APIS, _FLACDOWNLOADER_APIS, 
-            _QOBUZ_DL_, _FLACDOWNLOADER_APIS
-        )
-        qobuz_eps: list[tuple[str, str]] = []
-        _QOBUZ_PROBE_ID = "3135556"
-        for url in _STREAM_APIS:
-            if url.endswith("="):
-                qobuz_eps.append(("GET", f"{url}{_QOBUZ_PROBE_ID}&quality=6"))
-            else:
-                qobuz_eps.append(("GET", f"{url}{_QOBUZ_PROBE_ID}?quality=6"))
-        for url in _QOBUZ_DL_:
-            qobuz_eps.append(("GET", f"{url}track_id={_QOBUZ_PROBE_ID}&quality=6"))
-        for url in _POST_APIS:
-            qobuz_eps.append(("POST", url))
-        for url in _FLACDOWNLOADER_APIS:
-            qobuz_eps.append(("GET", f"{url.rstrip('/')}/prepare"))
+    qobuz_eps = []
+    _QOBUZ_PROBE_ID = "3135556"
+    
+    for url in get_qobuz_endpoints("stream"):
+        sep = "" if url.endswith("=") else "?"
+        qobuz_eps.append(("GET", f"{url}{_QOBUZ_PROBE_ID}{sep}quality=6"))
         
-        qobuz_eps.append(("GET", "https://api.zarz.moe/v1/health"))
-        qobuz_eps.append(("GET", "https://qbz.squid.wtf/"))
-        endpoints["qobuz"] = qobuz_eps
-    except ImportError:
-        endpoints["qobuz"] = [
-            ("GET", "https://flacdownloader.com/prepare"),
-            ("GET", "https://api.zarz.moe/v1/health"),
-            ("GET", "https://qbz.squid.wtf/"),
-            ("GET", "https://qbz.afkarxyz.qzz.io/api/track/3135556?quality=6"),
-            ("GET", "https://qobuz.spotbye.qzz.io/api/track/3135556?quality=6"),
-            ("GET", "https://qobuz.kennyy.com.br/api/download-music?track_id=3135556&quality=6"),
-            ("GET", "https://qobuz.squid.wtf/api/download-music?track_id=3135556&quality=6"),
-            ("GET", "https://mono.scavengerfurs.net/api/download-music?track_id=3135556&quality=6"),
-            ("POST", "https://api.zarz.moe/v1/dl/qbz"),
-            ("POST", "https://api.zarz.moe/v1/dl/qbz2"),
-            ("POST", "https://music.gdstudio.xyz/api.php"),
-            ("POST", "https://music.gdstudio.org/api.php"),
-            ("GET", "https://music.wjhe.top/api/music/qobuz/url?ID=3135556&quality=1000&format=flac"),
-        ]
+    for url in get_qobuz_endpoints("dl"):
+        qobuz_eps.append(("GET", f"{url}track_id={_QOBUZ_PROBE_ID}&quality=6"))
+        
+    for url in get_qobuz_endpoints("post"):
+        qobuz_eps.append(("POST", url))
+        
+    for url in get_qobuz_endpoints("flacdownloader"):
+        qobuz_eps.append(("GET", f"{url.rstrip('/')}/prepare"))
+    
+    qobuz_eps.append(("GET", zarz_health))
+    endpoints["qobuz"] = qobuz_eps
 
     # ── Deezer ─────────────────────────────────────────────────────────────
-    try:
-        from ..providers.deezer import _RESOLVER_URL
-
-        endpoints["deezer"] = [
-            ("POST", _RESOLVER_URL),
-            ("GET", "https://flacdownloader.com/prepare"),
-            ("GET", "https://api.zarz.moe/v1/health"),
-        ]
-    except ImportError:
-        endpoints["deezer"] = [
-            ("POST", "https://api.zarz.moe/v1/dl/dzr"),
-            ("GET", "https://flacdownloader.com/prepare"),
-            ("GET", "https://api.zarz.moe/v1/health"),
-        ]
+    dzr_res = get_deezer_endpoint("resolver")
+    dzr_flac = get_deezer_endpoint("flacdownloader_prepare")
+    
+    deezer_eps = []
+    if dzr_res: deezer_eps.append(("POST", dzr_res))
+    if dzr_flac: deezer_eps.append(("GET", dzr_flac))
+    deezer_eps.append(("GET", zarz_health))
+    endpoints["deezer"] = deezer_eps
 
     # ── Amazon ─────────────────────────────────────────────────────────────
-    try:
-        from ..providers.amazon import API_ENDPOINTS
-
-        amazon_list: list[tuple[str, str]] = []
-        for val in API_ENDPOINTS.values():
-            if isinstance(val, dict):
-                base_url = val.get("base_url", "")
-                if base_url:
-                    amazon_list.append(("POST", base_url))
-            elif isinstance(val, str):
-                amazon_list.append(("POST", val))
-        amazon_list.append(("GET", "https://api.zarz.moe/v1/health"))
-        amazon_list.append(("GET",  "https://amz.squid.wtf/"))
-        endpoints["amazon"] = amazon_list
-    except ImportError:
-        endpoints["amazon"] = [
-            ("POST", "https://amz.spotbye.qzz.io/api"),
-            ("POST", "https://amazon.spotbye.qzz.io/api"),
-            ("GET",  "https://api.zarz.moe/v1/health"),
-        ]
+    amazon_eps = []
+    for key, method in [("spotbye1", "POST"), ("spotbye2", "GET"), ("zarz", "GET"), ("musicdl", "POST"), ("squid", "GET")]:
+        url = get_amazon_endpoint(key)
+        if url:
+            amazon_eps.append((method, url))
+            
+    amazon_eps.append(("GET", zarz_health))
+    endpoints["amazon"] = amazon_eps
 
     # ── Apple Music ────────────────────────────────────────────────────────
-    try:
-        from ..providers.apple_music import API_ENDPOINTS as APPLE_DL_ENDPOINTS
-
-        endpoints["apple"] = [
-            ("GET",  "https://api.zarz.moe/v1/health"),
-        ]
-    except ImportError:
-        endpoints["apple"] = [
-            ("GET",  "https://api.zarz.moe/v1/health"),
-        ]
+    endpoints["apple"] = [("GET", zarz_health)]
 
     # ── SoundCloud ─────────────────────────────────────────────────────────
-    try:
-        from ..providers.soundcloud import SoundCloudProvider
-
-        sc     = SoundCloudProvider.__new__(SoundCloudProvider)
-        cobalt = getattr(sc, "cobalt_api", "https://api.zarz.moe/v1/dl/cobalt/")
-        endpoints["soundcloud"] = [
-            ("POST", cobalt),
-            ("GET",  "https://api.zarz.moe/v1/health"),
-        ]
-    except Exception:
-        endpoints["soundcloud"] = [
-            ("POST", "https://api.zarz.moe/v1/dl/cobalt/"),
-            ("GET",  "https://api.zarz.moe/v1/health"),
-        ]
+    sc_cobalt = get_soundcloud_cobalt()
+    endpoints["soundcloud"] = [("POST", sc_cobalt)] if sc_cobalt else []
+    endpoints["soundcloud"].append(("GET", zarz_health))
 
     # ── YouTube ────────────────────────────────────────────────────────────
-    # YouTube usa yt-dlp locale, nessun endpoint HTTP da sondare.
     endpoints["youtube"] = []
 
     # ── Pandora ────────────────────────────────────────────────────────────
-    try:
-        from ..providers.pandora import _API_BASE_URL, _DOWNLOAD_PATH
-
-        endpoints["pandora"] = [
-            ("GET",  f"{_API_BASE_URL}/v1/health"),
-            ("POST", f"{_API_BASE_URL}{_DOWNLOAD_PATH}"),
-        ]
-    except ImportError:
-        endpoints["pandora"] = [("GET", "https://api.zarz.moe/v1/health")]
+    pan_base, pan_path = get_pandora_base_and_path()
+    endpoints["pandora"] = []
+    if pan_base and pan_path:
+        endpoints["pandora"].append(("POST", f"{pan_base}{pan_path}"))
+    endpoints["pandora"].append(("GET", zarz_health))
 
     # ── GD Studio API (Netease, Kuwo, Migu, Joox) ──────────────────────────
     for provider in ["netease", "kuwo", "migu", "joox"]:
-        endpoints[provider] = [
-            ("GET", "https://music-api.gdstudio.xyz/api.php"),
-            ("GET", "https://music.wjhe.top/api/music/joox/url?ID=11259&quality=1000&format=flac"),
-        ]
+        prov_eps = []
+        gd_url = get_asian_provider_endpoint(provider, "gdstudio")
+        if gd_url:
+            prov_eps.append(("GET", gd_url))
+        
+        wjhe_url = get_asian_provider_endpoint(provider, "wjhe") or get_asian_provider_endpoint("joox", "wjhe")
+        if wjhe_url:
+            if "?" not in wjhe_url:
+                wjhe_url = f"{wjhe_url.rstrip('/')}/url?ID=11259&quality=1000&format=flac"
+            prov_eps.append(("GET", wjhe_url))
+        
+        endpoints[provider] = prov_eps
 
     return endpoints
-
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -219,7 +164,7 @@ def _load_endpoints() -> dict[str, list[tuple[str, str]]]:
 _UA                = "SpotiFLAC-HealthCheck/4.5.0"
 _TIMEOUT           = httpx.Timeout(connect=2.0, read=2.0, write=2.0, pool=2.0)
 _MAX_CONCURRENT    = 25
-_ZARZ_HEALTH_URL   = "https://api.zarz.moe/v1/health"
+_ZARZ_HEALTH_URL   = get_health_zarz_url() or "https://api.zarz.moe/v1/health"
 _GLOBAL_HC_TIMEOUT = 10  # secondi
 
 # Carica gli endpoint una sola volta al momento dell'import
@@ -272,12 +217,14 @@ async def _check_one(
         # Header di base
         req_kwargs: dict = {"headers": {"User-Agent": _UA}}
 
-        # Iniezione degli header richiesti da FlacDownloader per aggirare il blocco
-        if "flacdownloader.com" in url or "/prepare" in url:
+        # Iniezione degli header richiesti per endpoint di tipo FlacDownloader
+        if "/prepare" in url:
+            parsed = urlparse(url)
+            origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
             req_kwargs["headers"].update({
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
                 "Accept": "application/json",
-                "Referer": "https://flacdownloader.com/it/download"
+                "Referer": f"{origin}/it/download" if origin else ""
             })
 
         # Payload standard per l'API di Deezer
@@ -397,7 +344,6 @@ async def _check_one(
             elif provider == "deezer":
                 try:
                     parsed = json.loads(body)
-                    # Supporta sia l'API Deezer ("id") sia flacdownloader ("t")
                     if parsed.get("id") and not parsed.get("error"):
                         ok, detail = True, "API OK"
                     elif parsed.get("t"):
@@ -415,7 +361,6 @@ async def _check_one(
                     detail = "Empty Body"
 
         elif resp.status_code in (404, 400):
-            # Mirror tidal/qobuz che risponde 404/400 su una track sonda è comunque attivo
             if provider in ("tidal", "qobuz", "qbz"):
                 ok, detail = True, f"HTTP {resp.status_code} (Reachable)"
 
@@ -460,7 +405,7 @@ async def _zarz_bulk_check(
 ) -> dict[str, HealthResult]:
     """
     Una sola richiesta a Zarz per ricavare lo stato di tutti i provider.
-    Ritorna {provider: HealthResult} solo per i provider presenti nella risposta.
+    Returns {provider: HealthResult} solo per i provider presenti nella risposta.
     """
     try:
         t0   = time.perf_counter()
@@ -503,15 +448,11 @@ async def run_health_check(
     include_all_endpoints: bool = True,
 ) -> list[HealthResult]:
     """
-    Controlla in modo asincrono la raggiungibilità di tutti i provider indicati.
-
-    Crea un httpx.AsyncClient dedicato per ogni chiamata (context manager) per
-    evitare problemi di binding all'event loop in scenari multi-run.
+    Check in modo asincrono la raggiungibilità di tutti i provider indicati.
     """
     results:   list[HealthResult]         = []
     task_list: list[tuple[str, str, str]] = []
 
-    # YouTube → sempre locale, nessuna rete
     for svc in services:
         if svc == "youtube":
             results.append(
@@ -522,12 +463,9 @@ async def run_health_check(
     if not remaining:
         return results
 
-    # Un semaforo per limitare le connessioni concorrenti
     sem = asyncio.Semaphore(_MAX_CONCURRENT)
 
     async with _make_async_client() as client:
-        # ── Fast-path: una richiesta Zarz per tutti i provider ──────────────
-        # ── Fast-path: una richiesta Zarz per tutti i provider ──────────────
         zarz_results = await _zarz_bulk_check(client, remaining)
 
         for svc in remaining:
@@ -539,17 +477,13 @@ async def run_health_check(
                     results.append(zarz_r)
                 continue
 
-            # Escludi l'endpoint Zarz (già controllato sopra)
             eps_to_probe = [(m, u) for m, u in eps if "zarz.moe/v1/health" not in u]
 
             if include_all_endpoints:
-                # FIX: Aggiungiamo ai risultati lo stato di Zarz (se presente)
                 if zarz_r:
                     results.append(zarz_r)
-                # E ACCODIAMO TUTTI gli endpoint secondari affinché vengano sondati
                 task_list.extend((svc, m, u) for m, u in eps_to_probe)
             else:
-                # Comportamento originale (fast-path): se Zarz è OK, salta i fallback
                 if zarz_r and zarz_r.ok:
                     results.append(zarz_r)
                 elif eps_to_probe:
@@ -559,19 +493,7 @@ async def run_health_check(
                     results.append(zarz_r)
                 continue
 
-            # Escludi l'endpoint Zarz (già controllato sopra)
-            eps_to_probe = [(m, u) for m, u in eps if "zarz.moe/v1/health" not in u]
-
-            if include_all_endpoints:
-                task_list.extend((svc, m, u) for m, u in eps_to_probe)
-            elif eps_to_probe:
-                m, u = eps_to_probe[0]
-                task_list.append((svc, m, u))
-
-        # ── Sonde individuali (solo per provider non già risolti da Zarz) ───
         if task_list:
-            # Mappa task → (provider, method, url) per recuperare i metadati
-            # sui task ancora pendenti al timeout globale
             task_map: dict[asyncio.Task[HealthResult], tuple[str, str, str]] = {
                 asyncio.create_task(
                     _check_one_gated(sem, client, p, m, u),
@@ -597,11 +519,9 @@ async def run_health_check(
                 task.cancel()
                 results.append(HealthResult(p, u, m, False, -1, "global timeout"))
 
-            # Drena i task cancellati per evitare RuntimeWarning
             if pending:
                 await asyncio.gather(*pending, return_exceptions=True)
 
-    # ── Post-processing auth_required ──────────────────────────────────────
     auth_blocked = {r.provider for r in results if "auth" in r.detail.lower() and not r.ok}
     if auth_blocked:
         results = [
@@ -622,9 +542,6 @@ def run_health_check_sync(
 ) -> list[HealthResult]:
     """
     Wrapper sincrono — crea un event loop dedicato tramite asyncio.run().
-
-    Non usare se sei già in un contesto async (es. all'interno di un'altra
-    coroutine): chiama direttamente `await run_health_check(...)` invece.
     """
     return asyncio.run(run_health_check(services, **kwargs))
 
@@ -709,5 +626,5 @@ def provider_ok(results: list[HealthResult], provider: str) -> bool:
 
 
 def get_working_providers(results: list[HealthResult]) -> list[str]:
-    """Ritorna la lista dei provider con almeno un endpoint funzionante."""
+    """Returns la lista dei provider con almeno un endpoint funzionante."""
     return list(dict.fromkeys(r.provider for r in results if r.ok))

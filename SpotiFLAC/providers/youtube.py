@@ -19,6 +19,8 @@ from ..core.tagger import embed_metadata, EmbedOptions
 from ..core.musicbrainz import mb_result_to_tags
 from ..core.download_validation import validate_downloaded_track
 from ..core.musicbrainz import AsyncMBFetch
+# FIXED IMPORT:
+from ..core.endpoints import get_youtube_endpoints
 
 logger = logging.getLogger(__name__)
 
@@ -32,16 +34,6 @@ _DEFAULT_UA = (
 YT_SEARCH_PARAMS_TRACKS = "EgWKAQIIAQ=="
 INNERTUBE_CLIENT_VERSION = "1.20240801.01.00"
 
-def _sanitize(value: str) -> str:
-    return re.sub(r'[\\/*?:"<>|]', "", value).strip()
-
-def _safe_int(value: Any) -> int:
-    try:
-        return int(value)
-    except (ValueError, TypeError):
-        return 0
-
-
 class YouTubeProvider(BaseProvider):
     name = "youtube"
 
@@ -50,6 +42,8 @@ class YouTubeProvider(BaseProvider):
         self._session = NetworkManager.get_sync_client()
         self._session.headers.update({"User-Agent": _DEFAULT_UA})
         self._enrichment_cache: dict[str, dict] = {}
+
+    # YouTube receives canonical quality; backend chooses best available via yt-dlp.
 
     def set_progress_callback(self, cb: Callable[[int, int], None]) -> None:
         super().set_progress_callback(cb)
@@ -95,7 +89,8 @@ class YouTubeProvider(BaseProvider):
         details = data.get("videoDetails", {})
         title = details.get("title", "Unknown")
         artist = details.get("author", "Unknown Artist")
-        duration = int(details.get("lengthSeconds", 0)) * 1000
+        # FIXED: Safe casting to integer in case API returns None or empty string
+        duration = int(details.get("lengthSeconds") or 0) * 1000
 
         thumbs = details.get("thumbnail", {}).get("thumbnails", [])
         cover_url = thumbs[-1].get("url") if thumbs else ""
@@ -179,7 +174,7 @@ class YouTubeProvider(BaseProvider):
                 if runs:
                     title = runs[0].get("text", "Unknown")
 
-                # Estrazione Artista
+                # Estrazione Artist
                 if len(columns) > 1:
                     second_col = columns[1].get("musicResponsiveListItemFlexColumnRenderer", {})
                     artist_runs = second_col.get("text", {}).get("runs", [])
@@ -221,7 +216,7 @@ class YouTubeProvider(BaseProvider):
             )
             return resp.json() if resp.is_success else None
         except httpx.RequestError as e: 
-            logger.debug(f"[youtube] Errore di rete in _fetch_continuation: {e}")
+            logger.debug(f"[youtube] Error di rete in _fetch_continuation: {e}")
             return None
 
     def _find_key_recursive(self, data: Any, key: str) -> Iterator[Any]:
@@ -248,12 +243,12 @@ class YouTubeProvider(BaseProvider):
                 data = resp.json()
                 links = data.get("linksByPlatform", {})
                 
-                # 1. Recupera ISRC da Odesli se presente
+                # 1. Retrieves ISRC da Odesli se presente
                 entities = data.get("entitiesByUniqueId", {})
                 for entity_data in entities.values():
                     if not metadata.isrc and entity_data.get("isrc"):
                         metadata.isrc = entity_data.get("isrc")
-                        logger.info(f"[youtube] ISRC trovato via Odesli: {metadata.isrc}")
+                        logger.info(f"[youtube] ISRC found via Odesli: {metadata.isrc}")
 
                 # 2. Fallback su API Deezer per ISRC
                 if not metadata.isrc and "deezer" in links:
@@ -268,17 +263,17 @@ class YouTubeProvider(BaseProvider):
                                 dz_data = dz_resp.json()
                                 if dz_data.get("isrc"):
                                     metadata.isrc = dz_data["isrc"]
-                                    logger.info(f"[youtube] ISRC recuperato via fallback Deezer API: {metadata.isrc}")
+                                    logger.info(f"[youtube] ISRC retrievesto via fallback Deezer API: {metadata.isrc}")
                         except httpx.RequestError as e:
-                            logger.warning(f"[youtube] Deezer API fallback errore di rete: {e}")
+                            logger.warning(f"[youtube] Deezer API fallback network error: {e}")
 
-                # 3. Ritorna URL YouTube
+                # 3. Returns URL YouTube
                 yt_info = links.get("youtubeMusic") or links.get("youtube")
                 if yt_info and yt_info.get("url"):
                     return yt_info["url"]
 
         except httpx.RequestError as exc:
-            logger.warning(f"[youtube] Odesli API enrichTrack errore di rete: {exc}")
+            logger.warning(f"[youtube] Odesli API enrichTrack network error: {exc}")
         except Exception as exc:
             logger.warning(f"[youtube] Odesli API enrichTrack failed: {exc}")
         
@@ -328,7 +323,7 @@ class YouTubeProvider(BaseProvider):
                 logger.info(f"[youtube] Direct search resolved: {video_url}")
                 return video_url
         except httpx.RequestError as exc:
-            logger.warning(f"[youtube] Direct search errore di rete: {exc}")
+            logger.warning(f"[youtube] Direct search network error: {exc}")
         except Exception as exc:
             logger.warning(f"[youtube] Direct search failed: {exc}")
 
@@ -400,14 +395,10 @@ class YouTubeProvider(BaseProvider):
         return False
 
     def _request_cobalt(self, video_url: str) -> str | None:
-        cobalt_instances = [
-            "https://api.zarz.moe",
-            "https://co.wuk.sh",
-            "https://cobalt.qiaeru.tech",
-            "https://cobalt.cibere.dev",
-            "https://cobalt.owo.vc",
-            "https://api.cobalt.tools"
-        ]
+        # FIXED: Corrected the function call and normalized to list
+        cobalt_instances = get_youtube_endpoints("cobalt")
+        if not isinstance(cobalt_instances, list):
+            cobalt_instances = [cobalt_instances] if cobalt_instances else []
 
         headers = {
             "Content-Type": "application/json",
@@ -423,7 +414,13 @@ class YouTubeProvider(BaseProvider):
                     "downloadMode": "audio",
                     "audioFormat": "mp3"
                 }
-                api_url = f"{base_url.rstrip('/')}/v1/dl" if base_url == "https://api.zarz.moe" else f"{base_url.rstrip('/')}/"
+                
+                # FIXED: Extracted safely if returned as list; falls back to base_url
+                zarz_data = get_youtube_endpoints("zarz_clean")
+                if isinstance(zarz_data, list):
+                    api_url = zarz_data[0] if zarz_data else base_url
+                else:
+                    api_url = zarz_data or base_url
                 
                 resp = self._session.post(api_url, json=payload_v10, headers=headers, timeout=10)
 
@@ -440,7 +437,7 @@ class YouTubeProvider(BaseProvider):
                         logger.info(f"[youtube] Cobalt URL generato con successo da {api_url}")
                         return dl_url
             except httpx.RequestError as exc:
-                logger.debug(f"[youtube] Errore di rete Cobalt su {base_url}: {exc}")
+                logger.debug(f"[youtube] Error di rete Cobalt su {base_url}: {exc}")
             except Exception as exc:
                 logger.debug(f"[youtube] Fallimento Cobalt su {base_url}: {exc}")
 

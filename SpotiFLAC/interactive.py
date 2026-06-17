@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 import os
 import sys
 from .core.health_check import run_health_check
+from .core.quality import normalize_quality, quality_fallback_chain
 import asyncio
 
 _NO_COLOR = not sys.stdout.isatty() or os.environ.get("NO_COLOR")
@@ -291,7 +292,7 @@ def _profile_load_section(cfg: dict) -> dict:
 
         val_lower = val.lower()
         
-        # Gestione cancellazione profilo
+        # Handling cancellazione profilo
         if val_lower.startswith('d') and len(val_lower) > 1:
             num_str = val_lower[1:].strip()
             if num_str.isdigit():
@@ -301,9 +302,9 @@ def _profile_load_section(cfg: dict) -> dict:
                     if _ask_bool(f"Delete profile '{prof_to_delete}'?", False):
                         delete_profile(prof_to_delete)
                         print(f"\n  {GREEN('✓')} Profile {BOLD(prof_to_delete)} deleted.\n")
-                    continue # Ricarica il menu aggiornato
+                    continue # Reload the updated menu
 
-        # Gestione caricamento profilo
+        # Handling caricamento profilo
         chosen_name: str | None = None
         if val.isdigit() and 1 <= int(val) <= len(profiles):
             chosen_name = profiles[int(val) - 1]
@@ -578,6 +579,7 @@ def run_interactive() -> dict:
             options = ["mp3_192 (High — default)", "aac_64 (Medium)", "aac_32 (Low)"],
             default = "mp3_192 (High — default)",
         )
+        # Pandora uses provider-specific tokens directly
         cfg["quality"] = q_choice.split(" ")[0]
         print(f"  {DIM('Note: Output will be MP3 or M4A depending on selected quality.')}")
     elif is_youtube_url or (len(cfg["services"]) == 1 and cfg["services"][0] == "youtube"):
@@ -598,27 +600,28 @@ def run_interactive() -> dict:
                 options = ["6 (CD Lossless)", "7 (Hi-Res)", "27 (Hi-Res Max)"],
                 default = "6 (CD Lossless)",
             )
-            cfg["quality"] = q_choice.split(" ")[0]
+            cfg["quality"] = normalize_quality(q_choice.split(" ")[0])
         elif has_tidal and not (has_qobuz or has_deezer or has_apple):
-            cfg["quality"] = _ask_choice(
+            q = _ask_choice(
                 "Tidal Quality:",
                 options = ["DOLBY_ATMOS", "HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"],
                 default = "LOSSLESS",
             )
+            cfg["quality"] = normalize_quality(q)
         elif has_deezer and not (has_qobuz or has_tidal or has_apple):
             q_choice = _ask_choice(
                 "Deezer Quality:",
                 options = ["LOSSLESS (FLAC)", "HIGH (MP3 320)", "NORMAL (MP3 128)"],
                 default = "LOSSLESS (FLAC)",
             )
-            cfg["quality"] = q_choice.split(" ")[0]
+            cfg["quality"] = normalize_quality(q_choice.split(" ")[0])
         elif has_apple and not (has_qobuz or has_tidal or has_deezer):
             q_choice = _ask_choice(
                 "Apple Music Quality:",
                 options = ["ALAC (Lossless)", "ATMOS (Spatial)", "AC3", "AAC", "AAC-LEGACY"],
                 default = "ALAC (Lossless)",
             )
-            cfg["quality"] = q_choice.split(" ")[0].lower()
+            cfg["quality"] = normalize_quality(q_choice.split(" ")[0])
         elif has_qobuz or has_tidal or has_deezer or has_apple:
             combined_options = [
                 "LOSSLESS (FLAC on Deezer/Tidal, '6' on Qobuz, ALAC on Apple)",
@@ -648,12 +651,15 @@ def run_interactive() -> dict:
             elif q_choice.startswith("7"):         cfg["quality"] = "7"
             elif q_choice.startswith("AAC-LEGACY"):cfg["quality"] = "aac-legacy"
             else:                                   cfg["quality"] = "HIGH"
+            # normalize combined choice to canonical form
+            cfg["quality"] = normalize_quality(cfg["quality"])
         else:
-            cfg["quality"] = _ask_choice(
+            q = _ask_choice(
                 "Quality:",
                 options = ["LOSSLESS", "HI_RES", "HIGH"],
                 default = "LOSSLESS",
             )
+            cfg["quality"] = normalize_quality(q)
 
         cfg["allow_fallback"] = _ask_bool("Allow automatic quality fallback?", True)
 
@@ -759,6 +765,7 @@ def run_interactive() -> dict:
 
     # ── 11. Optional Qobuz Local API ───────────────────────────────────────────────
     _section("12 · Optional Qobuz Local API")
+    print(f"  {DIM('For a self-hosted Qobuz API, visit: https://github.com/BartolomeoRusso9/qobuz-api')}")
     cfg["qobuz_local_api_url"] = _ask(
         "Qobuz local API URL (leave blank to skip)",
         cfg.get("qobuz_local_api_url", "") or "",

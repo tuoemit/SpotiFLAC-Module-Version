@@ -32,6 +32,9 @@ from ..core.link_resolver import LinkResolver
 from ..core.models import DownloadResult, TrackMetadata
 from ..core.musicbrainz import AsyncMBFetch, mb_result_to_tags
 from ..core.tagger import EmbedOptions, _print_mb_summary, embed_metadata
+from ..core.endpoints import get_tidal_post_endpoints
+from ..core.quality import normalize_quality as _cq_normalize_quality, quality_fallback_chain as _cq_quality_fallback_chain
+from ..core.flac_validation import validate_and_repair_if_needed
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +44,7 @@ logger = logging.getLogger(__name__)
 
 _TIDAL_APIS_GET = []
 
-_TIDAL_API_POST = [
-    "https://api.zarz.moe/v1/dl/tid2",
-]
+_TIDAL_API_POST = get_tidal_post_endpoints()
 
 _CLEAN_POST_APIS = frozenset(a.rstrip('/') for a in _TIDAL_API_POST)
 
@@ -74,7 +75,7 @@ _api_cooldown_lock:     threading.Lock       = threading.Lock()
 _api_cooldown_until:    dict[str, float]     = {}
 
 def _is_deterministic_error(message: str) -> bool:
-    """Verifica se l'errore ritornato è causato dalla traccia e non da un timeout di rete"""
+    """Check if the returned error is caused by the track and not by a network timeout"""
     text = str(message or "")
     if not text:
         return False
@@ -135,28 +136,7 @@ def _clear_api_rate_limit(api_url: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _normalize_quality(value: str) -> str:
-    normalized = (value or "").strip().upper()
-    if not normalized:
-        return "LOSSLESS"
-    
-    # ── TRADUZIONE QUALITÀ QOBUZ -> TIDAL ──
-    if normalized in ("27", "7"):
-        return "HI_RES_LOSSLESS"
-    if normalized == "6":
-        return "LOSSLESS"
-    if normalized == "5":
-        return "HIGH"
-
-    # ── MAPPE STANDARD (come nel JS) ──
-    if normalized in ("DOLBY", "ATMOS", "DOLBY ATMOS"):
-        return "DOLBY_ATMOS"
-    if normalized in ("EAC3", "EC3", "EAC3_JOC"):
-        return "DOLBY_ATMOS"
-    if normalized in ("HIRES", "HI_RES", "MASTER"):
-        return "HI_RES_LOSSLESS"
-    if normalized == "FLAC":
-        return "LOSSLESS"
-    return normalized
+    return _cq_normalize_quality(value)
 
 _QUALITY_FALLBACK_CHAINS: dict[str, list[str]] = {
     "DOLBY_ATMOS":    ["DOLBY_ATMOS", "HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"],
@@ -167,8 +147,7 @@ _QUALITY_FALLBACK_CHAINS: dict[str, list[str]] = {
 }
 
 def _quality_fallback_chain(quality: str) -> list[str]:
-    normalized = _normalize_quality(quality)
-    return _QUALITY_FALLBACK_CHAINS.get(normalized, [normalized or "LOSSLESS"])
+    return _cq_quality_fallback_chain(quality)
 
 # ---------------------------------------------------------------------------
 # API list manager
@@ -781,7 +760,7 @@ class TidalProvider(BaseProvider):
         winner_api, dl_url = _fetch_tidal_url_parallel(ordered, track_id, quality, _API_TIMEOUT_S)
         record_success("tidal", winner_api)
         remember_tidal_api_usage(winner_api)
-        print_source_banner("tidal", winner_api, quality)
+        print_source_banner("tidal", "", quality)
         return dl_url
 
     def _get_download_url_with_fallback(self, track_id: int, quality: str) -> str:
@@ -932,11 +911,29 @@ class TidalProvider(BaseProvider):
             **kwargs:            Any,
     ) -> DownloadResult:
         try:
-            if metadata.id.startswith("tidal_"):
-                tidal_url = f"https://listen.tidal.com/track/{metadata.id.removeprefix('tidal_')}"
-                logger.info("[tidal] Direct Tidal ID detected: %s", metadata.id)
+            # Backwards compatibility: accept an int or str track id in place of a TrackMetadata object.
+            from types import SimpleNamespace
+            if isinstance(metadata, (int, str)):
+                # If numeric, treat as a direct tidal track id; otherwise keep string id (likely a Spotify id)
+                try:
+                    numeric = int(metadata)
+                    metadata = SimpleNamespace(id=f"tidal_{numeric}", title="", artists="", isrc="", duration_ms=0, cover_url=None)
+                except Exception:
+                    metadata = SimpleNamespace(id=str(metadata), title="", artists="", isrc="", duration_ms=0, cover_url=None)
+
+            # Proceed using the normalized metadata object
+            meta_id = getattr(metadata, "id", "")
+            if meta_id and str(meta_id).startswith("tidal_"):
+                tidal_url = f"https://listen.tidal.com/track/{str(meta_id).removeprefix('tidal_')}"
+                logger.info("[tidal] Direct Tidal ID detected: %s", meta_id)
             else:
-                tidal_url = self.resolve_spotify_to_tidal(metadata.id, metadata.title, metadata.artists, metadata.isrc, metadata.duration_ms)
+                tidal_url = self.resolve_spotify_to_tidal(
+                    getattr(metadata, "id", ""),
+                    getattr(metadata, "title", ""),
+                    getattr(metadata, "artists", ""),
+                    getattr(metadata, "isrc", ""),
+                    getattr(metadata, "duration_ms", 0),
+                )
             track_id = self._parse_track_id(tidal_url)
 
             mb_fetcher = None
@@ -974,10 +971,21 @@ class TidalProvider(BaseProvider):
             # Controllo Preview derivato dal Web JS
             actual_s = self._get_audio_duration_seconds(final_dest)
             if actual_s <= 35 and expected_s > 45:
-                # E' probabile che sia stato scaricato un preview limitato
+                # E' probabile che sia stato sloaded un preview limitato
                 if final_dest.exists():
                     final_dest.unlink()
                 raise SpotiflacError(ErrorKind.UNAVAILABLE, f"Tidal returned a limited preview track ({actual_s}s).", self.name)
+
+            # Validate and repair FLAC files if needed
+            if str(final_dest).lower().endswith(".flac"):
+                success, repair_msg = validate_and_repair_if_needed(str(final_dest))
+                if not success:
+                    logger.error("[tidal] FLAC file validation failed: %s", repair_msg)
+                    if final_dest.exists():
+                        final_dest.unlink()
+                    raise SpotiflacError(ErrorKind.UNAVAILABLE, f"FLAC validation failed: {repair_msg}", self.name)
+                if repair_msg:
+                    logger.info("[tidal] FLAC file repair status: %s", repair_msg)
 
             mb_tags: dict[str, str] = {}
             if mb_fetcher:

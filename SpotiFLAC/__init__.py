@@ -110,9 +110,9 @@ def SpotiFLAC(
         url: single URL (str) o lista di URL (list[str]) per il batch.
         output_dir: Cartella di destinazione.
         services: Provider in ordine di priorità (default: ["tidal"]).
-        track_max_retries: Tentativi extra per traccia in caso di fallimento (default: 0).
+        track_max_retries: Tentativi extra per track in caso di fallimento (default: 0).
         post_download_action: Azione al termine — "none" | "open_folder" | "notify" | "command".
-        post_download_command: Comando shell da eseguire (con {folder}, {succeeded}, {failed}).
+        post_download_command: Comando shell da executere (con {folder}, {succeeded}, {failed}).
     """
     _setup_logger(log_level)
 
@@ -147,4 +147,4 @@ def SpotiFLAC(
     except KeyboardInterrupt:
         print("\n\n[!] Operazione interrotta dall'utente.")
     except Exception as e:
-        logging.getLogger("SpotiFLAC").error("Errore critico durante l'esecuzione: %s", e)
+        logging.getLogger("SpotiFLAC").error("Critical error durante l'esecuzione: %s", e)

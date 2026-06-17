@@ -78,7 +78,7 @@ class TrackMetadata(BaseModel):
 
     @property
     def first_artist(self) -> str:
-        """Ritorna solo il primo artista della lista."""
+        """Returns solo il primo artista della lista."""
         return self.artists.split(",")[0].strip()
 
     def as_flac_tags(self, *, first_artist_only: bool = False) -> dict[str, str]:
@@ -111,7 +111,7 @@ class TrackMetadata(BaseModel):
 
     def with_enrichment(self, extra: Any) -> "TrackMetadata":
         """
-        Restituisce una nuova istanza aggiornata con i dati dell'enrichment.
+        Returns una nuova istanza aggiornata con i dati dell'enrichment.
 
         FIX: in precedenza usava assegnazione diretta (self.field = value),
         che è anti-pattern per Pydantic v2. Ora usa model_copy(update={})
@@ -188,7 +188,7 @@ _WHITESPACE  = re.compile(r"\s+")
 
 
 def sanitize(value: str, fallback: str = "Unknown") -> str:
-    """Rimuove caratteri non validi per i filesystem e normalizza gli spazi."""
+    """Removes caratteri non validi per i filesystem e normalizza gli spazi."""
     if not value:
         return fallback
     cleaned = _UNSAFE_RE.sub("", value)

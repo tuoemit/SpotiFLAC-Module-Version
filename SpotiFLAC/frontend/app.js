@@ -23,7 +23,7 @@ function detectAndApplyOSStyles() {
   console.log(`[OS Detection] Detected OS: ${detectedOS}`);
 }
 
-// Esegui il rilevamento al caricamento della pagina
+// Esegui il rilevamento al caricamento della page
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', detectAndApplyOSStyles);
 } else {
@@ -34,7 +34,7 @@ function showSkeletonTracks(count = 5) {
   const container = $('track-rows');
   if (!container) return;
   
-  // Svuota la tabella e inserisci gli skeleton con lo STESSO grid delle tracce reali
+  // Svuota la tabella e inserisci gli skeleton con lo STESSO grid delle tracks reali
   container.innerHTML = Array(count).fill(0).map(() => `
     <div class="track-row" style="pointer-events: none; border-bottom: 1px solid var(--border);">
       <div><div class="skeleton" style="width:14px; height:14px; border-radius:2px;"></div></div>
@@ -67,7 +67,7 @@ function showSkeletonTracks(count = 5) {
   if (header) header.style.display = 'none';
 }
 
-// Inizializza lo stato dopo aver caricato le impostazioni
+// Inizializza lo stato dopo aver loaded le impostazioni
 function initSettingsTracking() {
     initialSettings = buildConfig();
     isDirty = false;
@@ -182,9 +182,32 @@ function changeFont() {
   } catch (e) {}
 }
 
+function qualityFallbackChain(q) {
+  const n = (q || '').toString().toUpperCase();
+  const chains = {
+      'DOLBY_ATMOS': ['DOLBY_ATMOS','HI_RES_LOSSLESS','LOSSLESS','HIGH','LOW'],
+      'HI_RES_LOSSLESS': ['HI_RES_LOSSLESS','LOSSLESS','HIGH','LOW'],
+      'LOSSLESS': ['LOSSLESS','HIGH','LOW'],
+      'HI_RES': ['HI_RES','LOSSLESS','HIGH','LOW'],
+      'HIGH': ['HIGH','LOW'],
+      'LOW': ['LOW']
+  };
+  return chains[n] || [n || 'LOSSLESS'];
+}
+
 function applySettings(settings = {}) {
   const cfg = { ...DEFAULT_SETTINGS, ...settings };
-  if ($('config-quality')) $('config-quality').value = cfg.quality;
+  if ($('config-quality')) {
+      $('config-quality').value = cfg.quality;
+      // show fallback chain as tooltip
+      $('config-quality').title = qualityFallbackChain(cfg.quality).join(' → ');
+      // update tooltip when user changes selection (use onchange to avoid duplicate listeners)
+      $('config-quality').onchange = function() {
+          const val = $('config-quality').value;
+          $('config-quality').title = qualityFallbackChain(val).join(' → ');
+          isDirty = true; updateSaveButtonVisual();
+      };
+  }
   if ($('config-fallback')) $('config-fallback').checked = cfg.allow_fallback;
   if ($('config-theme')) $('config-theme').value = cfg.theme;
   if ($('config-font')) $('config-font').value = cfg.font;
@@ -566,7 +589,7 @@ function renderStatusIcon(status) {
 function copyLogs() {
     const logArea = $('logArea');
     if (!logArea) {
-        logMessage('Errore: Area log non trovata.', 'error');
+        logMessage('Error: Log area not found.', 'error');
         return;
     }
 
@@ -577,7 +600,7 @@ function copyLogs() {
         navigator.clipboard.writeText(logsText).then(() => {
             toastMgr.success('Logs copiati negli appunti!');
         }).catch(err => {
-            toastMgr.error('Errore durante la copia dei logs.');
+            toastMgr.error('Error copying logs.');
         });
     } else {
         // Fallback per browser vecchi
@@ -843,7 +866,7 @@ window.updateFolderLabel = (path) => {
             if (!currentDownloadToastId) {
               currentDownloadToastId = toastMgr.loading(msg, { title: 'Downloading Tracks...' });
             } else {
-              // Aggiorna il testo del toast esistente
+              // Update il testo del toast esistente
               const toastEl = document.getElementById(currentDownloadToastId);
               if (toastEl) toastEl.querySelector('.toast-message').innerHTML = msg;
             }
@@ -1142,7 +1165,7 @@ function updateAlbumMeta(trackCount) {
     }
   }
   
-  // Per gli album, mostra artista, data e numero di tracce nel subtitle
+  // Per gli album, mostra artista, data e numero di tracks nel subtitle
   if (badgeType === 'ALBUM') {
     const artistEl = $('album-artist');
     const artist = artistEl.textContent?.trim() || '';
@@ -1174,7 +1197,7 @@ function updateAlbumMeta(trackCount) {
     trackCountEl.textContent = `${trackCount} track${trackCount !== 1 ? 's' : ''}`;
   }
   $('album-meta').style.display = '';
-  // Aggiorna anche l'etichetta dell'intestazione della tabella tracce
+  // Update anche l'etichetta dell'intestazione della tabella tracks
   setPlaycountHeaderLabel(badgeType === 'PLAYLIST' ? 'Album' : 'Playcount');
 }
 
@@ -1235,7 +1258,7 @@ function showSingleTrackCard(t) {
     section.style.display = 'none';
   }
 
-  // Bottoni azione specifici per la traccia
+  // Bottoni azione specifici per la track
   const previewUrl = t.preview_url || t.previewUrl || '';
   const extUrl     = t.external_url || t.externalUrl || t.link || '';
   const trackId    = t.id || '';
@@ -1440,7 +1463,7 @@ function renderTracks(tracks, page = 1) {
   currentTracks = tracks;
   currentPage = page;
   
-  // Calcola la paginazione
+  // Calcola la pagezione
   const totalPages = Math.ceil(tracks.length / TRACKS_PER_PAGE);
   const startIdx = (currentPage - 1) * TRACKS_PER_PAGE;
   const endIdx = startIdx + TRACKS_PER_PAGE;
@@ -1493,7 +1516,7 @@ function renderTracks(tracks, page = 1) {
       const playcountCell = isPlaylist ? escHtml(albumName || '—') : playcount;
       let previewUrl = t.preview_url || '';
       
-      // Se non c'è, controlliamo se è una proprietà dell'oggetto traccia
+      // Se non c'è, controlliamo se è una proprietà dell'oggetto track
       if (!previewUrl && t.previewUrl) previewUrl = t.previewUrl;
       
       // Lazy Loading: il pulsante è sempre abilitato, ma recupererà il preview al click se necessario
@@ -1554,7 +1577,7 @@ function renderTracks(tracks, page = 1) {
     } else {
       setTrackRenderStatus('', false);
       updateAlbumMeta(tracks.length);
-      // Se è una pagina artista, inietta la sezione album sopra le tracce
+      // Se è una page artista, inietta la section album sopra le tracks
       const urlLower = (currentUrl || '').toLowerCase();
       const isArtist = urlLower.includes('/artist/') || urlLower.includes('spotify:artist:') || urlLower.includes('/browse/artist');
       document.getElementById('artist-tabs-section')?.remove();
@@ -1570,7 +1593,7 @@ function renderTracks(tracks, page = 1) {
       }
       $('recent-wrap').style.display = 'none';
       
-      // Mostra/nascondi paginazione
+      // Mostra/nascondi pagezione
       updatePaginationControls(totalPages);
     }
   };
@@ -1581,10 +1604,10 @@ onCheckChange();
 }
 
 function updatePaginationControls(totalPages) {
-  const paginationDiv = $('pagination-controls');
+  const pagetionDiv = $('pagetion-controls');
   if (totalPages > 1) {
-    paginationDiv.classList.remove('hidden');
-    paginationDiv.style.display = 'flex';
+    pagetionDiv.classList.remove('hidden');
+    pagetionDiv.style.display = 'flex';
     
     const pageInfo = $('page-info');
     pageInfo.textContent = `Page ${currentPage} of ${totalPages} (${TRACKS_PER_PAGE} per page)`;
@@ -1592,8 +1615,8 @@ function updatePaginationControls(totalPages) {
     $('page-prev').disabled = currentPage === 1;
     $('page-next').disabled = currentPage === totalPages;
   } else {
-    paginationDiv.classList.add('hidden');
-    paginationDiv.style.display = 'none';
+    pagetionDiv.classList.add('hidden');
+    pagetionDiv.style.display = 'none';
   }
 }
 
@@ -1870,7 +1893,7 @@ function setPreviewButtonState(button, active) {
   const isCardBtn = button.classList.contains('act-btn');
   const svgSize = isCardBtn ? "13" : "11";
 
-  // Gestione dinamica dei tooltip
+  // Handling dinamica dei tooltip
   if (isCardBtn) {
     button.title = active ? 'Pause preview' : 'Play Preview';
   } else {
@@ -1980,7 +2003,7 @@ function onCheckChange() {
     selectBtn.style.display = checked > 0 ? 'flex' : 'none';
   }
 }
-// 1. Gestione Ricerche Recenti nel LocalStorage
+// 1. Handling Ricerche Recenti nel LocalStorage
 function saveRecentSearch(query) {
     if (!query || query.length < 2) return;
     let searches = JSON.parse(localStorage.getItem('recent_searches') || '[]');
@@ -2323,7 +2346,7 @@ function sortTracks() {
   const val = $('sort-select').value;
   const sorted = [...currentTracks]; // Lavora sempre su una copia
   
-  // Ripristina l'array usando l'indice nascosto salvato in precedenza
+  // Ripristina l'array usando l'indice nascosto saved in precedenza
   if (val === 'default') { 
     sorted.sort((a, b) => a._originalIndex - b._originalIndex);
     renderTracks(sorted, 1); 
@@ -2352,7 +2375,30 @@ function detectUrlType(url) {
   if (u.includes('spotify:artist:') || u.includes('/artist/') || u.includes('/browse/artist')) return 'artist';
   return '';
 }
- 
+
+// Convert legacy Spotify URIs (spotify:track:ID) and similar short URIs into web links
+function normalizeHistoryUrl(url) {
+  if (!url) return '';
+  const u = String(url).trim();
+  try {
+    if (u.startsWith('spotify:')) {
+      const parts = u.split(':');
+      if (parts.length >= 3) {
+        const type = parts[1];
+        const id = parts.slice(2).join(':');
+        return `https://open.spotify.com/${type}/${id}`;
+      }
+    }
+    // If it already looks like an http(s) link, return as-is
+    if (u.startsWith('http://') || u.startsWith('https://')) return u;
+    // Support bare open.spotify.com/... without protocol
+    if (u.startsWith('open.spotify.com') || u.startsWith('play.spotify.com')) return `https://${u}`;
+    return u;
+  } catch (e) {
+    return url;
+  }
+}
+
 function renderRecent(hist) {
   const grid = $('recent-grid'); grid.innerHTML = '';
   if (!hist || !hist.length) {
@@ -2368,13 +2414,14 @@ function renderRecent(hist) {
   hist.slice(0, 16).forEach(item => {
     const card = document.createElement('div');
     card.className = 'recent-card';
-    card.onclick = () => {
-      const link = item.url || '';
-      if (!link) return;
-      $('urlInput').value = link;
-      highlightRecentCard(link);
-      onFetch();
-    };
+  const rawUrl = item.url || '';
+  const link = normalizeHistoryUrl(rawUrl);
+  card.onclick = () => {
+    if (!link) return;
+    $('urlInput').value = link;
+    highlightRecentCard(link);
+    onFetch();
+  };
  
     const coverUrl = item.cover || item.cover_url || item.image || '';
     const coverBg  = coverUrl ? `background-image:url('${encodeURI(coverUrl)}');` : '';
@@ -2408,7 +2455,7 @@ function renderRecent(hist) {
         ${badgeHtml}
       </div>
     `;
-    card.dataset.url = item.url || '';
+    card.dataset.url = link || item.url || '';
     grid.appendChild(card);
   });
 }
@@ -2441,7 +2488,7 @@ function addToQueue(indices) {
         return;
       }
 
-      // Usa l'indice originale per evitare che Python scarichi la traccia sbagliata
+      // Usa l'indice originale per evitare che Python scarichi la track sbagliata
       const realIndex = t._originalIndex !== undefined ? t._originalIndex : i;
 
       if (queue.find(q => q.index === realIndex)) {
@@ -2816,7 +2863,7 @@ function setFetchingState(state, customMsg = null) {
   else if (state === 'error') {
     if (currentFetchToastId) toastMgr.dismiss(currentFetchToastId);
     const errorTitle = customMsg || 'error occurred';
-    toastMgr.error('Impossibile recuperare i dati', { title: errorTitle, position: 'bottom-left', duration: 3500 });
+    toastMgr.error('Unable to retrieve data', { title: errorTitle, position: 'bottom-left', duration: 3500 });
     currentFetchToastId = null;
   }
   else if (state === 'hide') {
@@ -2875,7 +2922,7 @@ async function onFetch() {
           setStatus(`Searching "${url}"...`, true);
         })
         .catch((e) => {
-          setStatus('Errore nella ricerca provider.', false);
+          setStatus('Provider search error.', false);
           logMessage('Search error: ' + e, 'error');
           setFetchingState('error');
         });
@@ -3143,18 +3190,18 @@ function renderHealthResults(data) {
   const container = $('hc-results'); container.innerHTML = '';
   Object.entries(provMap).forEach(([prov, rows]) => {
     const anyOk = rows.some(r => r.ok);
+    const okCount = rows.filter(r => r.ok).length;
+    const totalCount = rows.length;
     const group  = document.createElement('div');
-    group.className = 'hc-prov-group s-section'; group.style.padding = '10px 12px';
-    group.innerHTML = `<div class="hc-prov-name"><span class="hc-dot ${anyOk ? 'ok' : 'err'}"></span>${prov} <span style="font-size:10px;font-weight:400;color:var(--muted)">${rows.filter(r => r.ok).length}/${rows.length}</span></div>`;
-    rows.forEach(r => {
-      const lat      = r.latency < 0 ? 'timeout' : `${r.latency}ms`;
-      const latClass = r.latency < 0 ? '' : r.latency < 300 ? 'good' : 'slow';
-      const shortUrl = r.url.length > 48 ? '…' + r.url.slice(-46) : r.url;
-      const row = document.createElement('div');
-      row.className = `hc-row ${r.ok ? 'ok-r' : 'err-r'}`;
-      row.innerHTML = `<span class="hc-ind">${r.ok ? '✓' : '✗'}</span><span class="hc-meth">${r.method}</span><span class="hc-url" title="${r.url}">${shortUrl}</span><span class="hc-detail" title="${r.detail}">${r.detail}</span><span class="hc-lat ${latClass}">${lat}</span>`;
-      group.appendChild(row);
-    });
+    group.className = 'hc-prov-group s-section';
+    group.style.padding = '10px 12px';
+    group.innerHTML = `
+      <div class="hc-prov-name">
+        <span class="hc-dot ${anyOk ? 'ok' : 'err'}"></span>
+        ${prov}
+        <span style="font-size:10px;font-weight:400;color:var(--muted)">${okCount}/${totalCount} endpoints OK</span>
+      </div>
+    `;
     container.appendChild(group);
   });
 }
@@ -3184,7 +3231,7 @@ async function loadExploreData() {
         sectionsContainer.innerHTML = '<div style="color:var(--red);">Unable to load feed. Check your connection.</div>';
       }
     } catch (e) {
-      logMessage('Errore caricamento explore feed: ' + e, 'error');
+      logMessage('Failed to load explore feed: ' + e, 'error');
       sectionsContainer.innerHTML = '<div style="color:var(--red);">Network error.</div>';
     }
   } else {

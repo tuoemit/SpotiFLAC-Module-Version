@@ -13,6 +13,8 @@ from ..core.errors import SpotiflacError, ErrorKind, TrackNotFoundError
 from ..core.tagger import embed_metadata, EmbedOptions
 from ..core.download_validation import validate_downloaded_track
 from ..core.musicbrainz import AsyncMBFetch, mb_result_to_tags
+from ..core.endpoints import get_asian_provider_endpoint
+from ..core.flac_validation import validate_and_repair_if_needed
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,6 @@ _DEFAULT_UA = (
     "Chrome/120.0.0.0 Safari/537.36"
 )
 
-_API_BASE = "https://music-api.gdstudio.xyz/api.php"
 _SOURCE   = "netease"
 
 # br=740 → 16-bit FLAC lossless, br=999 → 24-bit FLAC lossless.
@@ -58,7 +59,7 @@ class NeteaseProvider(BaseProvider):
         """Search for tracks on Netease. Returns raw API result items."""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "search",
                     "source": _SOURCE,
@@ -78,20 +79,21 @@ class NeteaseProvider(BaseProvider):
             logger.debug("[netease] Search failed for '%s': %s", query, exc)
         return []
 
-    def _get_stream(self, track_id: str) -> str:
+    def _get_stream(self, track_id: str, requested_quality: str | int = _BR_LOSSLESS) -> tuple[str, int]:
         """
         Request a lossless FLAC stream URL (br=999) from Netease.
-        Returns the URL string, or empty string if the API can only serve
+        Returns the (url, br) tuple, or ('', 0) if the API can only serve
         a lossy format (actual br < 740).
         """
         try:
+            br_val = requested_quality if isinstance(requested_quality, int) else _BR_LOSSLESS
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "url",
                     "source": _SOURCE,
                     "id":     track_id,
-                    "br":     _BR_LOSSLESS,
+                    "br":     br_val,
                 },
                 timeout=10,
             )
@@ -108,11 +110,11 @@ class NeteaseProvider(BaseProvider):
                     "[netease] Track %s returned br=%d (lossy) — refusing",
                     track_id, actual_br,
                 )
-                return ""
-            return url
+                return "", actual_br
+            return url, actual_br
         except Exception as exc:
             logger.debug("[netease] Stream fetch failed for id=%s: %s", track_id, exc)
-        return ""
+        return "", 0
 
     def _get_pic_url(self, pic_id: str, size: int = 500) -> str:
         """Fetch album art URL from pic_id."""
@@ -120,7 +122,7 @@ class NeteaseProvider(BaseProvider):
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "pic",
                     "source": _SOURCE,
@@ -141,7 +143,7 @@ class NeteaseProvider(BaseProvider):
             return ""
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "lyric",
                     "source": _SOURCE,
@@ -162,7 +164,7 @@ class NeteaseProvider(BaseProvider):
         """
         try:
             resp = self._session.get(
-                _API_BASE,
+                get_asian_provider_endpoint(self.name, "gdstudio"),
                 params={
                     "types":  "search",
                     "source": f"{_SOURCE}_album",
@@ -344,7 +346,7 @@ class NeteaseProvider(BaseProvider):
             mb_fetcher = AsyncMBFetch(metadata.isrc) if metadata.isrc else None
 
             # ── 6. Source banner ──────────────────────────────────────────
-            print_source_banner("netease", _API_BASE, "FLAC")
+            print_source_banner("netease", "", "FLAC")
 
             # ── 7. Download ───────────────────────────────────────────────
             logger.info("[netease] Downloading '%s' (id=%s)", metadata.title, raw_track_id)
@@ -400,6 +402,15 @@ class NeteaseProvider(BaseProvider):
                         )
                 except Exception as exc:
                     logger.warning("[netease] Lyrics embed failed: %s", exc)
+
+            # Validate and repair FLAC files if needed
+            if str(dest).lower().endswith(".flac"):
+                success, repair_msg = validate_and_repair_if_needed(str(dest))
+                if not success:
+                    logger.error("[netease] FLAC file validation failed: %s", repair_msg)
+                    raise SpotiflacError(ErrorKind.FILE_IO, f"FLAC validation failed: {repair_msg}", self.name)
+                if repair_msg:
+                    logger.info("[netease] FLAC file repair status: %s", repair_msg)
 
             return DownloadResult.ok(self.name, str(dest), fmt="flac")
 
