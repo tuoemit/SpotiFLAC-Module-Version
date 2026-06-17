@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import io
 import logging
 import queue
@@ -26,7 +27,7 @@ def safe_tqdm_write(msg: str, file: io.TextIOBase | None = None) -> None:
         tqdm.write(msg, file=file or sys.stdout)
 
 
-class TqdmLoggingHandler(logging.StreamHandler):
+class TqdmLoggingHandler(logging.Handler):
     def __init__(self) -> None:
         super().__init__()
         self._message_cache: dict[str, float] = {}
@@ -123,11 +124,6 @@ def uninstall_console_interception() -> None:
     if isinstance(sys.stderr, _TqdmTextIOProxy):
         sys.stderr = sys.__stderr__
 
-    root = logging.getLogger()
-    for handler in list(root.handlers):
-        if isinstance(handler, TqdmLoggingHandler):
-            root.removeHandler(handler)
-
 
 class DownloadStatus(Enum):
     QUEUED      = "queued"
@@ -152,6 +148,50 @@ class DownloadItem:
     error_message: str            = ""
     file_path:     str            = ""
 
+class DownloadBroadcaster:
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls) -> DownloadBroadcaster:
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+                cls._instance._listeners = set()
+                cls._instance._listener_lock = threading.Lock()
+                cls._instance._loop = None
+                cls._instance._last_broadcast_time = 0.0
+        return cls._instance
+
+    def subscribe(self, queue: asyncio.Queue, loop: asyncio.AbstractEventLoop) -> None:
+        with self._listener_lock:
+            self._listeners.add(queue)
+            self._loop = loop
+
+    def unsubscribe(self, queue: asyncio.Queue) -> None:
+        with self._listener_lock:
+            self._listeners.discard(queue)
+            if not self._listeners:
+                self._loop = None
+
+    def broadcast_immediate(self, event_data: dict) -> None:
+        self._last_broadcast_time = time.time()
+        self._send_to_all(event_data)
+
+    def broadcast_progress(self, event_data: dict) -> None:
+        now = time.time()
+        if now - self._last_broadcast_time >= 0.25:
+            self._last_broadcast_time = now
+            self._send_to_all(event_data)
+
+    def _send_to_all(self, event_data: dict) -> None:
+        with self._listener_lock:
+            if self._loop and self._listeners:
+                for q in list(self._listeners):
+                    try:
+                        self._loop.call_soon_threadsafe(q.put_nowait, event_data)
+                    except Exception:
+                        pass
+
 class DownloadManager:
     _instance: "DownloadManager | None" = None
     _creation_lock = threading.Lock()
@@ -167,16 +207,25 @@ class DownloadManager:
     def _init_state(self) -> None:
         self._lock            = threading.RLock()
         self._queue:    list[DownloadItem] = []
-        self.is_downloading   = False
-        self.current_speed    = 0.0
         self.total_downloaded = 0.0
         self.current_item_id  = ""
         self.session_start    = 0.0
+
+    @property
+    def is_downloading(self) -> bool:
+        with self._lock:
+            return any(item.status == DownloadStatus.DOWNLOADING for item in self._queue)
+
+    @property
+    def current_speed(self) -> float:
+        with self._lock:
+            return sum(item.speed for item in self._queue if item.status == DownloadStatus.DOWNLOADING)
 
     def add_to_queue(self, item_id: str, track_name: str, artist_name: str, album_name: str, spotify_id: str) -> None:
         with self._lock:
             self._queue.append(DownloadItem(id=item_id, track_name=track_name, artist_name=artist_name, album_name=album_name, spotify_id=spotify_id))
             if self.session_start == 0.0: self.session_start = time.time()
+        DownloadBroadcaster().broadcast_immediate(self.get_stats())
 
     def start_download(self, item_id: str) -> None:
         with self._lock:
@@ -184,14 +233,19 @@ class DownloadManager:
                 if item.id == item_id:
                     item.status, item.start_time, item.progress = DownloadStatus.DOWNLOADING, time.time(), 0.0
                     break
-            self.current_item_id, self.is_downloading = item_id, True
+            self.current_item_id = item_id
+        DownloadBroadcaster().broadcast_immediate(self.get_stats())
 
-    def update_progress(self, item_id: str, progress_mb: float, speed_mbps: float) -> None:
+    def update_progress(self, item_id: str, progress_mb: float, total_mb: float, speed_mbps: float) -> None:
         with self._lock:
             for item in self._queue:
                 if item.id == item_id:
-                    item.progress, item.speed = progress_mb, speed_mbps
+                    item.progress = progress_mb
+                    if total_mb > 0:
+                        item.total_size = total_mb
+                    item.speed = speed_mbps
                     break
+        DownloadBroadcaster().broadcast_progress(self.get_stats())
 
     def complete_download(self, item_id: str, filepath: str, final_size_mb: float) -> None:
         with self._lock:
@@ -200,7 +254,7 @@ class DownloadManager:
                     item.status, item.end_time, item.file_path, item.progress, item.total_size = DownloadStatus.COMPLETED, time.time(), filepath, final_size_mb, final_size_mb
                     self.total_downloaded += final_size_mb
                     break
-            self.is_downloading = False
+        DownloadBroadcaster().broadcast_immediate(self.get_stats())
 
     def fail_download(self, item_id: str, error_msg: str) -> None:
         with self._lock:
@@ -208,7 +262,7 @@ class DownloadManager:
                 if item.id == item_id:
                     item.status, item.end_time, item.error_message = DownloadStatus.FAILED, time.time(), error_msg
                     break
-            self.is_downloading = False
+        DownloadBroadcaster().broadcast_immediate(self.get_stats())
 
     def skip_download(self, item_id: str) -> None:
         with self._lock:
@@ -216,28 +270,58 @@ class DownloadManager:
                 if item.id == item_id:
                     item.status, item.end_time = DownloadStatus.SKIPPED, time.time()
                     break
-            self.is_downloading = False
+        DownloadBroadcaster().broadcast_immediate(self.get_stats())
 
     def get_stats(self) -> dict:
         with self._lock:
-            queued    = sum(1 for item in self._queue if item.status == DownloadStatus.QUEUED)
-            completed = sum(1 for item in self._queue if item.status == DownloadStatus.COMPLETED)
-            failed    = sum(1 for item in self._queue if item.status == DownloadStatus.FAILED)
-            skipped   = sum(1 for item in self._queue if item.status == DownloadStatus.SKIPPED)
-            active_bytes = sum(item.progress for item in self._queue if item.status == DownloadStatus.DOWNLOADING)
+            queue_items = []
+            completed_items = []
+            
+            for i in self._queue:
+                item_data = {
+                    "id": i.id,
+                    "track_name": i.track_name,
+                    "artist_name": i.artist_name,
+                    "album_name": i.album_name,
+                    "spotify_id": i.spotify_id,
+                    "status": i.status.value,
+                    "progress": i.progress,
+                    "total_size": i.total_size,
+                    "speed": i.speed,
+                    "file_path": i.file_path,
+                    "end_time": i.end_time,
+                    "error_message": i.error_message
+                }
+                queue_items.append(item_data)
+                if i.status == DownloadStatus.COMPLETED:
+                    completed_items.append(item_data)
+            
+            completed_items.sort(key=lambda x: x["end_time"], reverse=True)
+            latest_completed = completed_items[:20]
+            
+            active_progress = sum(item.progress for item in self._queue if item.status == DownloadStatus.DOWNLOADING)
+            
+            queued = sum(1 for item in self._queue if item.status == DownloadStatus.QUEUED)
+            completed = len(completed_items)
+            failed = sum(1 for item in self._queue if item.status == DownloadStatus.FAILED)
+            skipped = sum(1 for item in self._queue if item.status == DownloadStatus.SKIPPED)
+            
             return {
-                "is_downloading":   self.is_downloading,
-                "current_speed":    self.current_speed,
-                "total_downloaded": self.total_downloaded + active_bytes,
-                "queued":           queued,
-                "completed":        completed,
-                "failed":           failed,
-                "skipped":          skipped,
-                "queue": [{"id": i.id, "track_name": i.track_name, "artist_name": i.artist_name, "album_name": i.album_name, "spotify_id": i.spotify_id, "status": i.status.value, "progress": i.progress, "total_size": i.total_size, "speed": i.speed, "file_path": i.file_path} for i in self._queue],
+                "is_downloading": self.is_downloading,
+                "current_speed": self.current_speed,
+                "total_downloaded": self.total_downloaded + active_progress,
+                "queued": queued,
+                "completed": completed,
+                "failed": failed,
+                "skipped": skipped,
+                "downloads": queue_items,
+                "queue": queue_items,
+                "latest_completed": latest_completed
             }
 
     def reset(self) -> None:
         with self._lock: self._init_state()
+        DownloadBroadcaster().broadcast_immediate(self.get_stats())
 
 
 class ProgressManager:
@@ -455,6 +539,32 @@ class ProgressCallback:
         current_bytes = max(0, current_bytes)
         total_bytes = total_bytes if total_bytes > 0 else None
         ProgressManager.enqueue_progress(self._item_id, self._track_name, current_bytes, total_bytes)
+
+        current_mb = current_bytes / (1024 * 1024)
+        total_mb = total_bytes / (1024 * 1024) if total_bytes else 0.0
+
+        now = time.time()
+        if self._last_refresh_time == 0.0:
+            self._last_refresh_time = now
+            self._last_reported_bytes = current_bytes
+            speed_mbps = 0.0
+        else:
+            time_diff = now - self._last_refresh_time
+            if time_diff >= 0.5:
+                bytes_diff = current_bytes - self._last_reported_bytes
+                speed_mbps = (bytes_diff / (1024 * 1024)) / time_diff
+                self._last_refresh_time = now
+                self._last_reported_bytes = current_bytes
+            else:
+                manager = DownloadManager()
+                speed_mbps = 0.0
+                with manager._lock:
+                    for item in manager._queue:
+                        if item.id == self._item_id:
+                            speed_mbps = item.speed
+                            break
+
+        DownloadManager().update_progress(self._item_id, current_mb, total_mb, speed_mbps)
 
     @classmethod
     def clear_item(cls, item_id: str) -> None:
