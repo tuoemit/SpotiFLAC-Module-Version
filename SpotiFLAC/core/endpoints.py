@@ -22,7 +22,7 @@ def _decrypt_base64_payload(b64_string: str) -> dict:
     
     # Separiamo i pezzi come li avevamo uniti
     nonce = raw_bytes[:12]
-    encrypted_payload = raw_bytes[12:] # Contiene Ciphertext + Tag
+    encrypted_payload = raw_bytes[12:]
     
     hasher = hashlib.sha256()
     for part in _SEED_PARTS:
@@ -37,15 +37,12 @@ def _decrypt_base64_payload(b64_string: str) -> dict:
 def _load_registry() -> dict:
     """Scarica il JSON crittografato da GitHub, o usa il backup locale."""
     try:
-        # 1. Prova a scaricare da GitHub (timeout 3 secondi per non bloccare l'app)
         req = httpx.get(_CLOUD_URL, headers={'User-Agent': 'SpotiFLAC-Agent'}, timeout=3.0)
-        req.raise_for_status() # CRITICAL: Evita di scaricare e storare pagine 404/500 nella cache
+        req.raise_for_status()
         cloud_string = req.text
 
-        # Se ha successo, decripta
         registry = _decrypt_base64_payload(cloud_string)
         
-        # E salva un backup locale silenzioso per le volte in cui sarai offline
         try:
             with open(_CACHE_FILE, "w") as f:
                 f.write(cloud_string)
