@@ -89,44 +89,6 @@ docker run --rm -it -v "$(pwd)/downloads:/app/downloads" spotiflac \
 
 ---
 
-## Graphical User Interface (GUI)
-
-SpotiFLAC features a beautiful webview-based Graphical User Interface. Launch it with the `--gui` flag:
-
-```bash
-spotiflac --gui
-```
-> (Or python launcher.py --gui if running from source)
-
----
-## Interactive Mode
-SpotiFLAC features a smart Interactive Wizard that guides you step-by-step. To launch the wizard, use the `--interactive` flag:
-```bash
-spotiflac --interactive
-```
-> (Or python launcher.py --interactive if running from source)
-
-On launch it automatically runs a **service health check** before asking any questions, so you always know which providers are reachable.
-
-**What the wizard does at startup:**
-
-1. **Service Health Check** — probes provider endpoints and shows provider availability inline (✅ / ❌) before asking anything
-2. **URL History** — shows your last 8 downloads so you can re-run one with a single keypress
-3. **Folder Memory** — remembers your last output directory and offers it as the default
-4. **Profile Load** — optionally restores a full saved configuration
-
-**Smart URL Detection:** If you input an Artist URL, it will ask if you want to download "Featuring" tracks. It skips this question for albums or playlists.
-
-**Smart File Paths:** If you input a Single Track URL, it will ask if you want to set a specific `.flac` output path. If you do, it intelligently skips all questions about filename formatting and subfolder organization.
-
-**Unified Quality Profiles:** Automatically translates your desired quality tier across different services (like Tidal and Qobuz).
-
-**CLI Generator:** At the end of the configuration, it generates and prints the exact CLI command for your specific setup, so you can copy and reuse it in your automated scripts.
-
-**Profile Save:** After confirming the download, you can save the entire configuration as a named profile to reuse later.
-
----
-
 ```python
 from backend import SpotiFLAC
 
