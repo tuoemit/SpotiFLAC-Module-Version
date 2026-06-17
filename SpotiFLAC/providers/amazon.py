@@ -352,8 +352,8 @@ class AmazonProvider(BaseProvider):
 
         _squid_ep = get_amazon_endpoint("squid")
         parsed = urlparse(_squid_ep) if _squid_ep else None
-        origin = f"{parsed.scheme}://{parsed.netloc}" if parsed and parsed.scheme and parsed.netloc else "https://amz.squid.wtf"
-        referer = f"{origin}/"
+        origin = f"{parsed.scheme}://{parsed.netloc}" if parsed and parsed.scheme and parsed.netloc else ""
+        referer = f"{origin}/" if origin else ""
         _h = {
             "accept":       "*/*",
             "content-type": "application/json",
@@ -403,7 +403,7 @@ class AmazonProvider(BaseProvider):
 
     def _download_from_squid_api(self, asin: str, output_dir: str, requested_quality: str) -> tuple[str, dict] | None:
         """
-        Download a track directly from amz.squid.wtf via GET /api/stream.
+        Download a track directly from a Squid API via GET /api/stream.
         Handles both native FLAC responses and M4A containers with FLAC stream inside.
         """
         logger.info("[amazon] Trying Squid API (ASIN: %s)", asin)
