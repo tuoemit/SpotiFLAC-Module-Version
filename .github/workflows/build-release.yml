@@ -10,9 +10,6 @@ on:
         description: 'Nome da versão per creare la Release (ex: v1.0.0)'
         required: false
         type: string
-  push:
-    tags:
-      - 'v*'
 
 jobs:
   build:
