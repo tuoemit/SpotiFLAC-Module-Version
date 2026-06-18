@@ -829,6 +829,11 @@ class TidalProvider(BaseProvider):
             total_bytes += len(chunk)
 
             for i, url in enumerate(media_urls):
+                # Cooperative cancellation: check provider stop_event if set
+                evt = getattr(self, "_stop_event", None)
+                if evt is not None and getattr(evt, "is_set", lambda: False)():
+                    raise RuntimeError("Download cancelled by stop_event")
+
                 resp = self._session.get(url, timeout=15, headers=headers)
                 resp.raise_for_status()
                 chunk = resp.content
